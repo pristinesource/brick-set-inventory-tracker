@@ -6,7 +6,11 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "build:github-pages": "ng build --configuration production --output-path docs --base-href /brick-inventory/",
+    "build:github-pages-root": "ng build --configuration production --output-path docs --base-href /",
+    "build:custom": "ng build --configuration production --output-path",
+    "deploy:github-pages": "./build-github-pages.sh"
   },
   "private": true,
   "dependencies": {

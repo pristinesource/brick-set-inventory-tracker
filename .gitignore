@@ -40,3 +40,8 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
+
+# GitHub Pages build output
+# Note: /docs folder should NOT be ignored as it contains the built app for GitHub Pages
+# Uncomment the next line if you want to build docs folder separately
+# /docs
