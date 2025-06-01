@@ -1,0 +1,239 @@
+<div class="py-8">
+  <div class="max-w-6xl mx-auto">
+    <!-- My Sets Section -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">My Sets</h2>
+
+      <div *ngIf="userInventories.length > 0; else noUserSets" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div *ngFor="let inventory of userInventories" class="border rounded-lg overflow-hidden hover:shadow-lg transition">
+          <div class="p-4">
+            <!-- Set Image -->
+            <div class="mb-4 flex justify-center">
+              <div class="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer" (click)="openImageOverlay(allInventorySetImageUrls[inventory.set_num] || '', inventory.name)">
+                <img
+                  [src]="allInventorySetImageUrls[inventory.set_num] || ''"
+                  [alt]="inventory.name"
+                  class="w-full h-full object-contain hover:opacity-80 transition-opacity"
+                  (error)="onImageError($event)">
+              </div>
+            </div>
+            <div class="text-center mb-3">
+              <p class="text-xs text-gray-400">
+                Image © <a href="https://rebrickable.com" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-400">Rebrickable</a>
+              </p>
+            </div>
+
+            <h3 class="font-bold text-lg mb-2">{{ inventory.name }}</h3>
+            <p class="text-gray-600 text-sm mb-2">Set #: {{ inventory.set_num }}</p>
+            <p class="text-gray-600 text-sm mb-2">Version: {{ inventory.version }}</p>
+            <p class="text-gray-500 text-xs mb-3">Last updated: {{ inventory.lastUpdated | date:'medium' }}</p>
+
+            <div class="mb-4" *ngIf="getInventoryProgress(inventory) as progress">
+              <div class="flex justify-between text-xs text-gray-600 mb-1">
+                <span>Progress</span>
+                <span>{{ progress.totalOwned }}/{{ progress.totalNeeded }} parts ({{ progress.progress | number:'1.1-1' }}%)</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  class="h-2 rounded-full transition-all duration-300"
+                  [class.bg-green-500]="progress.progress >= 100"
+                  [class.bg-yellow-500]="progress.progress > 0 && progress.progress < 100"
+                  [class.bg-red-500]="progress.progress === 0"
+                  [style.width.%]="progress.progress">
+                </div>
+              </div>
+            </div>
+
+            <div class="flex space-x-2">
+              <a [routerLink]="['/inventory', inventory.id]" class="flex-1 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 transition text-center">
+                View Inventory
+              </a>
+              <button
+                (click)="removeFromMyInventory(inventory.set_num, inventory.version)"
+                class="bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600 transition">
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ng-template #noUserSets>
+        <div class="text-center py-8">
+          <p class="text-lg text-gray-600">You haven't added any sets to your collection yet.</p>
+          <p class="text-md text-gray-500 mt-2">Browse and add sets from the list below.</p>
+        </div>
+      </ng-template>
+    </div>
+
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-6">Browse Sets</h1>
+
+      <!-- Search and Filter -->
+      <div class="flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0 mb-8">
+        <div class="flex-1">
+          <label for="search" class="block text-sm font-medium text-gray-700 mb-1">Search</label>
+          <input
+            type="text"
+            id="search"
+            [(ngModel)]="searchTerm"
+            (ngModelChange)="filterSets()"
+            placeholder="Search by name or set number"
+            class="px-4 py-2 border rounded-md w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+        </div>
+
+        <div class="w-full md:w-1/4">
+          <label for="year" class="block text-sm font-medium text-gray-700 mb-1">Filter by Year</label>
+          <select
+            id="year"
+            [(ngModel)]="yearFilter"
+            (ngModelChange)="filterSets()"
+            class="px-4 py-2 border rounded-md w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option [ngValue]="null">All Years</option>
+            <option *ngFor="let year of [2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015]" [ngValue]="year">{{ year }}</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Sets Grid -->
+      <div *ngIf="!loading; else loadingTemplate">
+        <!-- Results Summary -->
+        <div *ngIf="filteredSets.length > 0" class="mb-4 text-sm text-gray-600">
+          Showing {{ (currentPage - 1) * itemsPerPage + 1 }} - {{ Math.min(currentPage * itemsPerPage, filteredSets.length) }} of {{ filteredSets.length }} sets
+        </div>
+
+        <div *ngIf="paginatedSets.length > 0; else noSets" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-8">
+          <div *ngFor="let set of paginatedSets" class="border rounded-lg overflow-hidden hover:shadow-lg transition">
+            <div class="p-4">
+              <!-- Set Image -->
+              <div class="mb-4 flex justify-center">
+                <div class="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer" (click)="openImageOverlay(set.img_url, set.name)">
+                  <img
+                    [src]="set.img_url"
+                    [alt]="set.name"
+                    class="w-full h-full object-contain hover:opacity-80 transition-opacity"
+                    (error)="onImageError($event)">
+                </div>
+              </div>
+              <div class="text-center mb-3">
+                <p class="text-xs text-gray-400">
+                  Image © <a href="https://rebrickable.com" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-400">Rebrickable</a>
+                </p>
+              </div>
+
+              <h3 class="font-bold text-lg mb-2 truncate" [title]="set.name">{{ set.name }}</h3>
+              <p class="text-gray-600 text-sm mb-1">Set #: {{ set.set_num }}</p>
+              <p class="text-gray-600 text-sm mb-1">Year: {{ set.year }}</p>
+              <p class="text-gray-600 text-sm mb-3">Parts: {{ set.num_parts }}</p>
+              <p class="text-gray-600 text-sm mb-3">Versions: {{ set.versions.join(', ') }}</p>
+
+              <div *ngIf="isSetTracked(set.set_num); else addSetTemplate">
+                <div class="flex space-x-2">
+                  <a [routerLink]="getInventoryLink(set.set_num)"
+                    class="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 transition flex-1 text-center">
+                    View Inventory
+                  </a>
+                  <button
+                    (click)="removeFromMyInventory(set.set_num)"
+                    class="bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600 transition">
+                    Remove
+                  </button>
+                </div>
+              </div>
+
+              <ng-template #addSetTemplate>
+                <div class="mb-2" *ngIf="set.versions.length > 1">
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Select Version:</label>
+                  <select
+                    [(ngModel)]="selectedVersions[set.set_num]"
+                    class="px-2 py-1 border rounded-md w-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option *ngFor="let version of set.versions" [value]="version">Version {{ version }}</option>
+                  </select>
+                </div>
+                <button
+                  (click)="addToMyInventory(set, set.versions.length > 1 ? selectedVersions[set.set_num] : 1)"
+                  class="w-full bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700 transition">
+                  Add to My Sets
+                </button>
+              </ng-template>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div *ngIf="totalPages > 1" class="flex justify-center items-center space-x-2 mt-8">
+          <button
+            (click)="previousPage()"
+            [disabled]="currentPage === 1"
+            class="px-3 py-2 rounded border bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+            Previous
+          </button>
+
+          <button
+            *ngFor="let page of getPageNumbers()"
+            (click)="goToPage(page)"
+            [class]="page === currentPage ? 'px-3 py-2 rounded border bg-blue-600 text-white' : 'px-3 py-2 rounded border bg-white text-gray-700 hover:bg-gray-50'">
+            {{ page }}
+          </button>
+
+          <button
+            (click)="nextPage()"
+            [disabled]="currentPage === totalPages"
+            class="px-3 py-2 rounded border bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+            Next
+          </button>
+        </div>
+
+        <ng-template #noSets>
+          <div class="text-center py-8">
+            <p class="text-lg text-gray-600">No sets found matching your criteria.</p>
+            <button
+              (click)="clearFilters()"
+              class="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">
+              Clear Filters
+            </button>
+          </div>
+        </ng-template>
+      </div>
+
+      <ng-template #loadingTemplate>
+        <div class="flex justify-center items-center h-64">
+          <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+          <p class="ml-4 text-lg text-gray-600">Loading sets...</p>
+        </div>
+      </ng-template>
+    </div>
+
+
+  </div>
+</div>
+
+<!-- Image Overlay -->
+<div
+  *ngIf="showImageOverlay"
+  class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+  (click)="onOverlayClick($event)">
+  <div class="relative max-w-4xl max-h-4xl p-4">
+    <!-- Close button -->
+    <button
+      (click)="closeImageOverlay()"
+      class="absolute top-2 right-2 text-white hover:text-gray-300 text-2xl font-bold z-10 bg-black bg-opacity-50 rounded-full w-8 h-8 flex items-center justify-center">
+      ×
+    </button>
+    <!-- Image -->
+    <img
+      [src]="getLargeImageUrl(overlayImageUrl)"
+      [alt]="overlayImageAlt"
+      class="max-w-full max-h-full object-contain"
+      style="max-width: 800px; max-height: 800px;">
+    <!-- Copyright Notice -->
+    <div class="absolute bottom-2 left-2 right-2 bg-black bg-opacity-75 text-white text-xs p-2 rounded">
+      <p class="text-center">
+        Image © <a href="https://rebrickable.com" target="_blank" rel="noopener noreferrer" class="text-blue-300 hover:text-blue-100 underline">Rebrickable</a>
+      </p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,258 @@
+<div class="py-8">
+  <div class="max-w-4xl mx-auto">
+    <div class="bg-white shadow-md rounded-lg p-6">
+      <h1 class="text-3xl font-bold text-gray-800 mb-6">Settings</h1>
+
+      <!-- Notification Messages -->
+      <div *ngIf="message"
+        [ngClass]="message.type === 'success' ? 'bg-green-100 border-green-400 text-green-700' : 'bg-red-100 border-red-400 text-red-700'"
+        class="border-l-4 p-4 mb-6 rounded">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg *ngIf="message.type === 'success'" class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+            <svg *ngIf="message.type === 'error'" class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm">{{ message.text }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Global Settings -->
+      <div class="mb-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">Display Preferences</h2>
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <!-- Image Preview Size -->
+          <div class="mb-6">
+            <h3 class="font-medium text-gray-800 mb-2">Image Preview Size</h3>
+            <p class="text-gray-600 text-sm mb-3">
+              Choose how large part and minifig images appear in the inventory view.
+            </p>
+            <div class="flex space-x-2">
+              <button
+                (click)="updateImagePreviewSize('1x')"
+                [class.bg-blue-600]="globalSettings.imagePreviewSize === '1x'"
+                [class.text-white]="globalSettings.imagePreviewSize === '1x'"
+                [class.bg-gray-200]="globalSettings.imagePreviewSize !== '1x'"
+                [class.text-gray-700]="globalSettings.imagePreviewSize !== '1x'"
+                class="px-4 py-2 rounded transition">
+                1x (Small)
+              </button>
+              <button
+                (click)="updateImagePreviewSize('2x')"
+                [class.bg-blue-600]="globalSettings.imagePreviewSize === '2x'"
+                [class.text-white]="globalSettings.imagePreviewSize === '2x'"
+                [class.bg-gray-200]="globalSettings.imagePreviewSize !== '2x'"
+                [class.text-gray-700]="globalSettings.imagePreviewSize !== '2x'"
+                class="px-4 py-2 rounded transition">
+                2x (Medium)
+              </button>
+              <button
+                (click)="updateImagePreviewSize('4x')"
+                [class.bg-blue-600]="globalSettings.imagePreviewSize === '4x'"
+                [class.text-white]="globalSettings.imagePreviewSize === '4x'"
+                [class.bg-gray-200]="globalSettings.imagePreviewSize !== '4x'"
+                [class.text-gray-700]="globalSettings.imagePreviewSize !== '4x'"
+                class="px-4 py-2 rounded transition">
+                4x (Extra Large)
+              </button>
+            </div>
+          </div>
+
+          <!-- Include Spare Parts in Progress -->
+          <div class="mb-6">
+            <h3 class="font-medium text-gray-800 mb-2">Progress Calculation</h3>
+            <p class="text-gray-600 text-sm mb-3">
+              Choose whether spare parts are included in overall set completion percentages.
+            </p>
+            <div class="flex space-x-2">
+              <button
+                (click)="updateIncludeSparePartsInProgress(true)"
+                [class.bg-blue-600]="globalSettings.includeSparePartsInProgress === true"
+                [class.text-white]="globalSettings.includeSparePartsInProgress === true"
+                [class.bg-gray-200]="globalSettings.includeSparePartsInProgress !== true"
+                [class.text-gray-700]="globalSettings.includeSparePartsInProgress !== true"
+                class="px-4 py-2 rounded transition">
+                Include Spare Parts
+              </button>
+              <button
+                (click)="updateIncludeSparePartsInProgress(false)"
+                [class.bg-blue-600]="globalSettings.includeSparePartsInProgress === false"
+                [class.text-white]="globalSettings.includeSparePartsInProgress === false"
+                [class.bg-gray-200]="globalSettings.includeSparePartsInProgress !== false"
+                [class.text-gray-700]="globalSettings.includeSparePartsInProgress !== false"
+                class="px-4 py-2 rounded transition">
+                Exclude Spare Parts
+              </button>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">
+              When excluded, spare parts will be shown separately and won't affect the main completion percentage.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Management -->
+      <div class="mb-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">Data Management</h2>
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <!-- Export/Import Section -->
+          <div class="mb-6">
+            <h3 class="font-medium text-gray-800 mb-2">Backup & Restore</h3>
+            <p class="text-gray-600 text-sm mb-4">
+              Export your inventory data for backup or import data from a previous backup.
+            </p>
+
+            <!-- Export -->
+            <div class="mb-4">
+              <button
+                (click)="exportData()"
+                class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                Export Data
+              </button>
+            </div>
+
+            <!-- Import -->
+            <div class="mb-4">
+              <input
+                type="file"
+                accept=".json"
+                (change)="onFileSelected($event)"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md mb-2">
+              <button
+                (click)="importData()"
+                [disabled]="!selectedFile"
+                class="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                Import Data
+              </button>
+            </div>
+          </div>
+
+          <!-- CSV Data Management Section -->
+          <div class="mb-6 border-t pt-6">
+            <h3 class="font-medium text-gray-800 mb-2">Building Block Data Cache</h3>
+            <p class="text-gray-600 text-sm mb-4" *ngIf="isUsingIndexedDB">
+              The app caches building block parts, sets, and inventory data locally for better performance.
+              The cache is automatically refreshed every 12 hours, but you can manually refresh it if needed.
+            </p>
+            <p class="text-gray-600 text-sm mb-4" *ngIf="!isUsingIndexedDB">
+              Your browser doesn't support IndexedDB, so building block data is loaded fresh from CSV files each time you visit.
+              This ensures you always have the latest data but may result in longer loading times.
+            </p>
+
+            <!-- Cache Status -->
+            <div class="bg-white border rounded-lg p-4 mb-4">
+              <div class="flex justify-between items-start mb-2">
+                <span class="font-medium text-gray-700">Cache Status:</span>
+                <span [class]="getCacheStatusClass()">{{ getCacheStatusText() }}</span>
+              </div>
+
+              <div *ngIf="isUsingIndexedDB && csvCacheInfo && csvCacheInfo.exists" class="text-sm text-gray-600 space-y-1">
+                <div>
+                  <span class="font-medium">Last updated:</span>
+                  {{ csvCacheInfo.timestamp | date:'medium' }}
+                </div>
+                <div>
+                  <span class="font-medium">Age:</span>
+                  {{ formatCacheAge(csvCacheInfo.age) }}
+                </div>
+              </div>
+
+              <div *ngIf="isUsingIndexedDB && (!csvCacheInfo || !csvCacheInfo.exists)" class="text-sm text-gray-600">
+                No cached data found. Data will be loaded from CSV files on next page refresh.
+              </div>
+
+              <div *ngIf="!isUsingIndexedDB" class="text-sm text-gray-600">
+                Caching not available - data loads fresh from CSV files each visit.
+              </div>
+            </div>
+
+            <!-- Manual Refresh Button -->
+            <button
+              (click)="refreshCSVData()"
+              [disabled]="isRefreshingCSV"
+              class="w-full px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center">
+              <div *ngIf="isRefreshingCSV" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              {{ isRefreshingCSV ? 'Refreshing CSV Data...' : 'Refresh CSV Data from Server' }}
+            </button>
+
+            <p class="text-xs text-gray-500 mt-2">
+              <span *ngIf="isUsingIndexedDB">This will download fresh CSV data from the server and update the cache.</span>
+              <span *ngIf="!isUsingIndexedDB">This will reload the page with fresh CSV data from the server.</span>
+            </p>
+          </div>
+
+          <!-- Clear Data Section -->
+          <div class="border-t pt-6">
+            <h3 class="font-medium text-gray-800 mb-2">Reset Application</h3>
+            <p class="text-gray-600 text-sm mb-4">
+              Permanently delete your inventory data. CSV cache will be preserved to avoid re-downloading.
+            </p>
+            <button
+              (click)="clearAllData()"
+              class="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 mb-2">
+              Clear My Data Only
+            </button>
+
+            <p class="text-gray-600 text-sm mb-4">
+              Or permanently delete ALL data including the CSV cache (will force complete reload on next visit):
+            </p>
+            <button
+              (click)="clearAllDataIncludingCache()"
+              class="w-full px-4 py-2 bg-red-800 text-white rounded-md hover:bg-red-900">
+              Clear All Data Including Cache
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Storage Information -->
+      <div class="mb-8" *ngIf="isUsingIndexedDB && storageInfo">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">Storage Information</h2>
+        <div class="bg-gray-50 p-4 rounded-lg">
+          <div class="mb-4">
+            <div class="flex justify-between items-center mb-2">
+              <span class="font-medium text-gray-700">Storage Usage</span>
+              <span class="text-gray-600">{{ formatBytes(storageInfo.used) }} / {{ formatBytes(storageInfo.quota) }}</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-3">
+              <div
+                class="h-3 rounded-full transition-all duration-300"
+                [class.bg-green-500]="getStoragePercentage() < 70"
+                [class.bg-yellow-500]="getStoragePercentage() >= 70 && getStoragePercentage() < 90"
+                [class.bg-red-500]="getStoragePercentage() >= 90"
+                [style.width.%]="getStoragePercentage()">
+              </div>
+            </div>
+            <div class="text-sm text-gray-600 mt-1">
+              {{ getStoragePercentage() | number:'1.1-1' }}% used
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div class="bg-white p-3 rounded border">
+              <div class="font-medium text-gray-700 mb-1">Storage Type</div>
+              <div class="text-gray-600">{{ storageInfo.type }}</div>
+            </div>
+            <div class="bg-white p-3 rounded border">
+              <div class="font-medium text-gray-700 mb-1">Data Components</div>
+              <div class="text-gray-600">
+                <div>• Your inventory data</div>
+                <div>• Building Block CSV data cache</div>
+                <div>• Application settings</div>
+              </div>
+            </div>
+          </div>
+
+          <p class="text-xs text-gray-500 mt-3">
+            Storage is managed automatically. CSV cache helps reduce loading times and data usage.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

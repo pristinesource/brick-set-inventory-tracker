@@ -1,0 +1,203 @@
+<div class="py-8">
+  <div class="max-w-6xl mx-auto">
+    <!-- Welcome section -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-4">Welcome to The Brick Set Inventory Tracker</h1>
+      <p class="text-lg text-gray-600 mb-6">
+        Track your building block collections, manage inventories, and keep track of missing pieces.
+        This tool helps you organize your sets and identify which parts you need to complete your builds.
+      </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Get Started -->
+        <div class="bg-blue-50 rounded-lg p-6">
+          <h2 class="text-xl font-semibold text-blue-700 mb-3">Get Started</h2>
+          <p class="text-gray-700 mb-4">Start tracking your sets by browsing the available sets or add a set you already own.</p>
+          <div class="flex space-x-4">
+            <a routerLink="/sets" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">Browse Sets</a>
+            <a routerLink="/settings" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 transition">Settings</a>
+          </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="bg-gray-50 rounded-lg p-6">
+          <h2 class="text-xl font-semibold text-gray-700 mb-3">Your Collection</h2>
+          <div *ngIf="userInventories.length > 0; else noSets">
+            <p class="text-gray-700">You are currently tracking <span class="font-bold text-blue-600">{{ userInventories.length }}</span> sets.</p>
+            <p class="text-gray-700 mt-2" *ngIf="userInventories.length > 0">
+              Last updated: {{ userInventories[0].lastUpdated | date:'medium' }}
+            </p>
+            <a routerLink="/missing-parts" class="inline-block mt-4 text-blue-600 hover:underline">View missing parts</a>
+          </div>
+          <ng-template #noSets>
+            <p class="text-gray-700">You are not tracking any sets yet.</p>
+            <p class="text-gray-700 mt-2">Browse available sets to get started.</p>
+          </ng-template>
+        </div>
+      </div>
+    </div>
+
+    <!-- IMPORTANT: Data Backup Warning -->
+    <div class="bg-red-50 border border-red-200 shadow-md rounded-lg p-6 mb-8">
+      <div class="flex items-start">
+        <div class="flex-shrink-0">
+          <svg class="w-6 h-6 text-red-600 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z"></path>
+          </svg>
+        </div>
+        <div class="ml-4">
+          <h2 class="text-xl font-bold text-red-800 mb-3">⚠️ CRITICAL: Backup Your Data Regularly</h2>
+          <div class="text-red-700 space-y-3">
+            <p class="font-semibold">Your inventory data is stored locally in your browser and could be lost permanently.</p>
+
+            <div class="bg-red-100 p-4 rounded border">
+              <h3 class="font-bold mb-2">📥 Backup Instructions:</h3>
+              <ol class="list-decimal list-inside space-y-1 text-sm">
+                <li>Go to <a routerLink="/settings" class="underline font-medium">Settings</a> → Data Management</li>
+                <li>Click "Export Data" to download a backup file</li>
+                <li>Save the file safely (cloud storage, email to yourself, etc.)</li>
+                <li><strong class="text-red-800">Do this after every session!</strong></li>
+              </ol>
+            </div>
+
+            <div class="bg-red-100 p-4 rounded border">
+              <h3 class="font-bold mb-2">🚨 Data Loss Scenarios:</h3>
+              <ul class="list-disc list-inside space-y-1 text-sm">
+                <li><strong>Browser cache cleared:</strong> All data permanently lost</li>
+                <li><strong>Browser reset/reinstall:</strong> All data permanently lost</li>
+                <li><strong>Computer crash/replacement:</strong> All data permanently lost</li>
+                <li><strong>Privacy mode/incognito:</strong> Data not saved between sessions</li>
+                <li><strong>Browser storage limits exceeded:</strong> Data may be automatically deleted</li>
+                <li><strong>System cleanup tools:</strong> May delete browser data</li>
+              </ul>
+            </div>
+
+            <p class="font-semibold text-red-800">
+              📝 <strong>Remember:</strong> This app runs entirely in your browser. No data is stored on our servers.
+              Regular backups are your only protection against data loss!
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- How to Use Guide -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">📚 How to Use This App</h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <!-- Getting Started -->
+        <div>
+          <h3 class="text-lg font-semibold text-blue-600 mb-4">🚀 Getting Started</h3>
+          <ol class="list-decimal list-inside space-y-2 text-gray-700">
+            <li>Browse available sets in the <a routerLink="/sets" class="text-blue-600 underline">Sets</a> section</li>
+            <li>Click "Add to My Sets" for sets you own or want to track</li>
+            <li>Select the correct version if multiple versions exist</li>
+            <li>Click "View Inventory" to start tracking your parts</li>
+            <li>Mark parts as owned by updating quantities</li>
+            <li>Use the Missing Parts view to see what you still need</li>
+          </ol>
+        </div>
+
+        <!-- Key Features -->
+        <div>
+          <h3 class="text-lg font-semibold text-green-600 mb-4">✨ Key Features</h3>
+          <ul class="list-disc list-inside space-y-2 text-gray-700">
+            <li><strong>Part Tracking:</strong> Mark individual parts as owned</li>
+            <li><strong>Minifigure Tracking:</strong> Track minifigures and their parts separately</li>
+            <li><strong>Spare Parts:</strong> Optional inclusion in progress calculations</li>
+            <li><strong>Progress Visualization:</strong> See completion percentages</li>
+            <li><strong>Missing Parts View:</strong> Consolidated view of all missing items</li>
+            <li><strong>Undo Functionality:</strong> Undo recent changes (Ctrl/Cmd+Z)</li>
+            <li><strong>Sorting & Filtering:</strong> Organize parts by various criteria</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tips and Best Practices -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">💡 Tips & Best Practices</h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Organization Tips -->
+        <div class="bg-blue-50 p-4 rounded-lg">
+          <h3 class="text-lg font-semibold text-blue-700 mb-3">📋 Organization</h3>
+          <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+            <li>Update quantities as you sort physical parts</li>
+            <li>Use the search function to find specific parts quickly</li>
+            <li>Sort by completion to focus on missing parts first</li>
+            <li>Check minifigure parts separately - they can be detailed</li>
+          </ul>
+        </div>
+
+        <!-- Data Management -->
+        <div class="bg-green-50 p-4 rounded-lg">
+          <h3 class="text-lg font-semibold text-green-700 mb-3">💾 Data Safety</h3>
+          <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+            <li>Export data after every session</li>
+            <li>Store backups in multiple safe locations</li>
+            <li>Test imports periodically to ensure backups work</li>
+            <li>Don't rely solely on browser storage</li>
+          </ul>
+        </div>
+
+        <!-- Performance Tips -->
+        <div class="bg-purple-50 p-4 rounded-lg">
+          <h3 class="text-lg font-semibold text-purple-700 mb-3">⚡ Performance</h3>
+          <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+            <li>Large sets may take time to load initially</li>
+            <li>Data is cached for faster subsequent loads</li>
+            <li>Use list view for large sets to improve scrolling</li>
+            <li>Adjust image size in settings for better performance</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+      <h2 class="text-2xl font-bold text-gray-800 mb-6">🎯 Quick Actions</h2>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <a routerLink="/sets" class="block p-4 border rounded-lg hover:shadow-lg transition text-center">
+          <div class="text-3xl mb-2">🧱</div>
+          <h3 class="font-bold text-lg mb-2 text-blue-600">Browse Sets</h3>
+          <p class="text-gray-600 text-sm">Explore available building block sets and add them to your collection.</p>
+        </a>
+
+        <a routerLink="/missing-parts" class="block p-4 border rounded-lg hover:shadow-lg transition text-center">
+          <div class="text-3xl mb-2">🔍</div>
+          <h3 class="font-bold text-lg mb-2 text-green-600">Missing Parts</h3>
+          <p class="text-gray-600 text-sm">See all missing parts across your tracked sets in one view.</p>
+        </a>
+
+        <a routerLink="/settings" class="block p-4 border rounded-lg hover:shadow-lg transition text-center">
+          <div class="text-3xl mb-2">⚙️</div>
+          <h3 class="font-bold text-lg mb-2 text-purple-600">Settings</h3>
+          <p class="text-gray-600 text-sm">Configure preferences and backup/restore your data.</p>
+        </a>
+
+        <div class="block p-4 border rounded-lg bg-gray-50 text-center">
+          <div class="text-3xl mb-2">📊</div>
+          <h3 class="font-bold text-lg mb-2 text-gray-600">Your Progress</h3>
+          <div *ngIf="userInventories.length > 0; else noSetsProgress">
+            <p class="text-sm text-gray-600">{{ userInventories.length }} sets tracked</p>
+            <p class="text-xs text-gray-500 mt-1">Keep building!</p>
+          </div>
+          <ng-template #noSetsProgress>
+            <p class="text-gray-600 text-sm">Add sets to see your progress here.</p>
+          </ng-template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Source Attribution -->
+    <div class="bg-gray-50 border rounded-lg p-4 text-center">
+      <p class="text-sm text-gray-600">
+        🧱 Set and part data provided by <a href="https://rebrickable.com" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">Rebrickable</a> •
+        📸 Images © Rebrickable •
+        🔧 This app is not affiliated with The LEGO Group
+      </p>
+    </div>
+  </div>
+</div>

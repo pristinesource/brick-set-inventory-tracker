@@ -1,0 +1,1258 @@
+<div style="width: 100%; max-width: none; display: block;">
+  <!-- Loading State -->
+  <div *ngIf="loading" class="flex items-center justify-center py-16 px-4 min-h-screen bg-gray-50">
+    <div class="text-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+      <p class="text-gray-600 mb-2" *ngIf="!isMissingPartsMode">Loading Inventory...</p>
+      <p class="text-gray-600 mb-2" *ngIf="isMissingPartsMode">Loading Missing Parts...</p>
+      <p class="text-sm text-gray-500">Loading large datasets may take a moment</p>
+      <p class="text-xs text-gray-400 mt-2">Processing CSV files and building cache...</p>
+    </div>
+  </div>
+
+  <!-- No inventory found (standard mode) -->
+  <div *ngIf="!loading && !userInventory && !isMissingPartsMode"
+    class="bg-white shadow-md rounded-lg p-6 max-w-4xl mx-auto my-8">
+    <h1 class="text-2xl font-bold text-gray-800 mb-4">Inventory Not Found</h1>
+    <p class="text-gray-600 mb-6">The inventory you're looking for does not exist or has been removed.</p>
+    <a routerLink="/sets" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
+      Back to Sets
+    </a>
+  </div>
+
+  <!-- No user inventories (missing parts mode) -->
+  <div *ngIf="!loading && isMissingPartsMode && userInventories.length === 0" class="bg-white py-8 w-full min-h-screen"
+    style="min-width: 600px;">
+    <div class="px-1 sm:px-2 text-center py-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-4">Missing Parts</h1>
+      <p class="text-lg text-gray-600 mb-4">You don't have any sets in your inventory yet.</p>
+      <a routerLink="/sets" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
+        Browse Sets
+      </a>
+    </div>
+  </div>
+
+  <!-- No missing parts (missing parts mode) -->
+  <div
+    *ngIf="!loading && isMissingPartsMode && userInventories.length > 0 && parts.length === 0 && spareParts.length === 0 && minifigs.length === 0"
+    class="bg-white py-8 w-full min-h-screen" style="min-width: 600px;">
+    <div class="px-1 sm:px-2 text-center py-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-4">Missing Parts</h1>
+      <p class="text-lg text-gray-600 mb-4">You have all parts for your sets. Great job!</p>
+      <a routerLink="/sets" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
+        View My Sets
+      </a>
+    </div>
+  </div>
+
+  <!-- Inventory details (standard mode) or Missing parts content (missing parts mode) -->
+  <div
+    *ngIf="!loading && ((!isMissingPartsMode && userInventory) || (isMissingPartsMode && userInventories.length > 0 && (parts.length > 0 || spareParts.length > 0 || minifigs.length > 0)))"
+    class="bg-white py-8 w-full min-h-screen" style="min-width: 600px; width: 100%; max-width: none;">
+    <div class="px-1 sm:px-2">
+      <!-- Header for standard mode -->
+      <div *ngIf="!isMissingPartsMode" class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between">
+        <div class="flex items-start space-x-4">
+          <!-- Set Image -->
+          <div *ngIf="set?.img_url" class="flex-shrink-0">
+            <div
+              class="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer"
+              (click)="openImageOverlay(set?.img_url || '', set?.name || 'Set image')">
+              <img [src]="set?.img_url || ''" [alt]="set?.name || 'Set image'"
+                class="w-full h-full object-contain hover:opacity-80 transition-opacity" (error)="onImageError($event)">
+            </div>
+            <div class="text-center mt-1">
+              <p class="text-xs text-gray-400">
+                Image © <a href="https://rebrickable.com" target="_blank" rel="noopener noreferrer"
+                  class="text-blue-500 hover:text-blue-400">Rebrickable</a>
+              </p>
+            </div>
+          </div>
+
+          <div class="flex-1">
+            <h1 class="text-2xl font-bold text-gray-800">{{ userInventory?.name }}</h1>
+            <p class="text-gray-600 mt-1">Set #: {{ userInventory?.set_num }}</p>
+            <p class="text-gray-600 mt-1">Version: {{ userInventory?.version }}</p>
+            <div class="flex flex-wrap gap-4 mt-2 text-sm text-gray-600">
+              <span *ngIf="set?.year">Year: {{ set?.year }}</span>
+              <span *ngIf="theme?.name">Theme: {{ theme?.name }}</span>
+              <span *ngIf="set?.num_parts">Parts: {{ set?.num_parts }}</span>
+              <span *ngIf="uniqueColorsCount > 0">Colors: {{ uniqueColorsCount }}</span>
+            </div>
+            <p class="text-gray-500 text-sm mt-1">Last updated: {{ userInventory?.lastUpdated | date:'medium' }}</p>
+
+            <!-- Overall Progress -->
+            <div class="mt-4">
+              <!-- When spare parts are included in progress -->
+              <div *ngIf="globalSettings.includeSparePartsInProgress">
+                <div class="flex justify-between text-sm text-gray-600 mb-1">
+                  <span>Overall Progress</span>
+                  <span>{{ totalPartsOwned + totalSparePartsOwned + totalMinifigsOwned }} / {{ totalPartsNeeded +
+                    totalSparePartsNeeded + totalMinifigsNeeded }} items ({{ overallProgress | number:'1.1-1' }}%)</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-3">
+                  <div class="h-3 rounded-full transition-all duration-300" [class.bg-green-500]="overallProgress >= 100"
+                    [class.bg-yellow-500]="overallProgress > 0 && overallProgress < 100"
+                    [class.bg-red-500]="overallProgress === 0" [style.width.%]="overallProgress">
+                  </div>
+                </div>
+              </div>
+
+              <!-- When spare parts are excluded from progress -->
+              <div *ngIf="!globalSettings.includeSparePartsInProgress">
+                <div class="space-y-3">
+                  <!-- Main Progress (Parts + Minifigs) -->
+                  <div>
+                    <div class="flex justify-between text-sm text-gray-600 mb-1">
+                      <span>Main Progress (Parts + Minifigures)</span>
+                      <span>{{ totalPartsOwned + totalMinifigsOwned }} / {{ totalPartsNeeded + totalMinifigsNeeded }} items ({{ overallProgress | number:'1.1-1' }}%)</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                      <div class="h-3 rounded-full transition-all duration-300" [class.bg-green-500]="overallProgress >= 100"
+                        [class.bg-yellow-500]="overallProgress > 0 && overallProgress < 100"
+                        [class.bg-red-500]="overallProgress === 0" [style.width.%]="overallProgress">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Spare Parts Progress (Separate) -->
+                  <div *ngIf="totalSparePartsNeeded > 0">
+                    <div class="flex justify-between text-sm text-gray-500 mb-1">
+                      <span>Spare Parts Progress</span>
+                      <span>{{ totalSparePartsOwned }} / {{ totalSparePartsNeeded }} items ({{ totalSparePartsNeeded > 0 ? (totalSparePartsOwned / totalSparePartsNeeded) * 100 : 0 | number:'1.1-1' }}%)</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                      <div class="h-2 rounded-full transition-all duration-300"
+                        [class.bg-green-400]="totalSparePartsOwned >= totalSparePartsNeeded"
+                        [class.bg-yellow-400]="totalSparePartsOwned > 0 && totalSparePartsOwned < totalSparePartsNeeded"
+                        [class.bg-red-400]="totalSparePartsOwned === 0"
+                        [style.width.%]="totalSparePartsNeeded > 0 ? (totalSparePartsOwned / totalSparePartsNeeded) * 100 : 0">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 md:mt-0 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+          <a [href]="'https://rebrickable.com/sets/' + userInventory?.set_num" target="_blank" rel="noopener noreferrer"
+            class="text-green-600 hover:underline flex items-center">
+            <span class="mr-1">🔗</span> View on Rebrickable
+          </a>
+          <a routerLink="/sets" class="text-blue-600 hover:underline">Back to Sets</a>
+        </div>
+      </div>
+
+      <!-- Header for missing parts mode -->
+      <div *ngIf="isMissingPartsMode" class="mb-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+          <div class="flex-1">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Missing Parts</h1>
+            <p class="text-gray-600">Track which parts and minifigures you still need for your building block sets</p>
+            <p class="text-sm text-gray-500 mt-2">Showing missing items from {{ userInventories.length }} set{{
+              userInventories.length !== 1 ? 's' : '' }}</p>
+          </div>
+          <div class="mt-4 md:mt-0">
+            <a routerLink="/sets" class="text-blue-600 hover:underline">Back to Sets</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="border-b border-gray-200 mb-6">
+        <nav class="flex space-x-8">
+          <button [class.text-blue-600]="activeTab === 'parts'" [class.border-blue-600]="activeTab === 'parts'"
+            [class.border-transparent]="activeTab !== 'parts'"
+            class="py-4 px-1 border-b-2 font-medium text-sm focus:outline-none" (click)="switchToTab('parts')">
+            <span *ngIf="!isMissingPartsMode">Parts ({{ totalPartsOwned }}/{{ totalPartsNeeded }})</span>
+            <span *ngIf="isMissingPartsMode">Missing Parts ({{ parts.length }})</span>
+            <span *ngIf="missingPartsCount > 0 && !isMissingPartsMode" class="ml-1 text-red-500">{{ missingPartsCount }} missing</span>
+          </button>
+          <button [class.text-blue-600]="activeTab === 'spare-parts'"
+            [class.border-blue-600]="activeTab === 'spare-parts'"
+            [class.border-transparent]="activeTab !== 'spare-parts'"
+            class="py-4 px-1 border-b-2 font-medium text-sm focus:outline-none" (click)="switchToTab('spare-parts')">
+            <span *ngIf="!isMissingPartsMode">Spare Parts ({{ totalSparePartsOwned }}/{{ totalSparePartsNeeded }})</span>
+            <span *ngIf="isMissingPartsMode">Missing Spare Parts ({{ spareParts.length }})</span>
+            <span *ngIf="missingSparePartsCount > 0 && !isMissingPartsMode" class="ml-1 text-red-500">{{ missingSparePartsCount }} missing</span>
+          </button>
+          <button [class.text-blue-600]="activeTab === 'minifigs'" [class.border-blue-600]="activeTab === 'minifigs'"
+            [class.border-transparent]="activeTab !== 'minifigs'"
+            class="py-4 px-1 border-b-2 font-medium text-sm focus:outline-none" (click)="switchToTab('minifigs')">
+            <span *ngIf="!isMissingPartsMode">Minifigures ({{ getTotalMinifigPartsProgress().owned }}/{{ getTotalMinifigPartsProgress().total }})</span>
+            <span *ngIf="isMissingPartsMode">Missing Minifigures ({{ minifigs.length }})</span>
+            <span *ngIf="getTotalMinifigPartsProgress().missing > 0 && !isMissingPartsMode" class="ml-1 text-red-500">{{ getTotalMinifigPartsProgress().missing }} parts missing</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Parts Tab -->
+      <div *ngIf="activeTab === 'parts'">
+        <!-- Parts controls -->
+        <div class="flex flex-col md:flex-row md:items-center mb-6 space-y-4 md:space-y-0 md:space-x-4">
+          <div class="flex-1">
+            <input type="text" [(ngModel)]="searchTerm" (ngModelChange)="filterParts()" placeholder="Search parts..."
+              class="px-4 py-2 border rounded-md w-full focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex space-x-2">
+            <!-- View toggle buttons -->
+            <div class="flex border rounded-md overflow-hidden">
+              <button (click)="togglePartsView()" [class.bg-blue-600]="partsViewType === 'tiles'"
+                [class.text-white]="partsViewType === 'tiles'" [class.bg-gray-200]="partsViewType !== 'tiles'"
+                [class.text-gray-700]="partsViewType !== 'tiles'" class="px-3 py-2 text-sm transition">
+                <span class="mr-1">⊞</span> Tiles
+              </button>
+              <button (click)="togglePartsView()" [class.bg-blue-600]="partsViewType === 'list'"
+                [class.text-white]="partsViewType === 'list'" [class.bg-gray-200]="partsViewType !== 'list'"
+                [class.text-gray-700]="partsViewType !== 'list'" class="px-3 py-2 text-sm transition">
+                <span class="mr-1">☰</span> List
+              </button>
+            </div>
+            <button (click)="toggleSortOptions()"
+              class="bg-gray-600 text-white px-3 py-2 rounded-md hover:bg-gray-700 transition text-sm">
+              <span class="mr-1">⚙️</span> Sort
+            </button>
+            <button (click)="markAllPartsOwned(true)"
+              class="bg-green-600 text-white px-3 py-2 rounded-md hover:bg-green-700 transition text-sm">
+              Mark All Complete
+            </button>
+            <button (click)="markAllPartsOwned(false)"
+              class="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 transition text-sm">
+              Mark All Missing
+            </button>
+          </div>
+        </div>
+
+        <!-- Sort Options Panel -->
+        <div *ngIf="showPartsSortOptions" class="bg-gray-50 border rounded-lg p-4 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium text-gray-800">Sort Parts</h3>
+            <button (click)="resetToDefaultSort()" class="text-sm text-blue-600 hover:underline">
+              Reset to Default
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <div *ngFor="let sortOption of partsSortOptions; let i = index" class="flex items-center space-x-3">
+              <span class="text-sm font-medium text-gray-700 w-8">{{ i + 1 }}.</span>
+
+              <select [(ngModel)]="sortOption.field"
+                (ngModelChange)="updateSortOption('parts', i, $event, sortOption.direction)"
+                class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <option *ngFor="let field of getAllFieldsForDropdown('parts')" [value]="field.value"
+                  [disabled]="isFieldDisabled('parts', field.value, i)">
+                  {{ field.label }}
+                </option>
+              </select>
+
+              <select [value]="sortOption.direction"
+                (change)="updateSortOption('parts', i, sortOption.field, $any($event.target).value)"
+                class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+
+              <button *ngIf="partsSortOptions.length > 1" (click)="removeSortOption('parts', i)"
+                class="text-red-600 hover:text-red-800 text-sm px-2 py-1">
+                ✕
+              </button>
+            </div>
+
+            <div *ngIf="partsSortOptions.length < 3" class="flex justify-start">
+              <button (click)="addSortOption('parts')" class="text-blue-600 hover:text-blue-800 text-sm">
+                + Add Sort Criteria
+              </button>
+            </div>
+          </div>
+
+          <div class="flex justify-end space-x-2 mt-4">
+            <button (click)="closeSortOptions()" class="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm">
+              Cancel
+            </button>
+            <button (click)="applySortChanges()"
+              class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm">
+              Apply Sort
+            </button>
+          </div>
+        </div>
+
+        <!-- Parts list -->
+        <div *ngIf="filteredParts.length > 0; else noPartsFound">
+          <!-- Tiles View -->
+          <div *ngIf="partsViewType === 'tiles'" class="grid gap-2 sm:gap-3 md:gap-4"
+            style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+            <div *ngFor="let part of filteredParts; trackBy: trackByPartId" class="border rounded-lg overflow-hidden"
+              [class.bg-green-50]="part.quantityOwned >= part.quantityNeeded"
+              [class.bg-yellow-50]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+              [class.bg-red-50]="part.quantityOwned === 0">
+              <div class="p-4">
+                <!-- Horizontal layout for 1x and 2x, vertical layout for 4x -->
+                <div [class]="shouldUseVerticalLayout() ? 'flex flex-col items-center mb-4' : 'flex items-start mb-4'">
+                  <div
+                    [class]="getImageSizeClasses() + (shouldUseVerticalLayout() ? ' mb-3 flex-shrink-0 cursor-pointer' : ' mr-4 flex-shrink-0 cursor-pointer')"
+                    (click)="openImageOverlay(part.imageUrl, part.part.name)">
+                    <img [src]="part.imageUrl" [alt]="part.part.name"
+                      class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                  </div>
+                  <div [class]="shouldUseVerticalLayout() ? 'flex-1 text-center' : 'flex-1'">
+                    <h3 class="font-medium text-gray-800">{{ part.part.name }}</h3>
+                    <p class="text-sm text-gray-600">Part #: {{ part.part.part_num }}</p>
+                    <p class="text-sm text-gray-600">Color: {{ part.color.name }}</p>
+                    <p class="text-sm text-gray-600" *ngIf="part.elementId">Element ID: {{ part.elementId }}</p>
+                    <p class="text-sm text-blue-600 font-medium" *ngIf="isMissingPartsMode && part.setName">From: {{
+                      part.setName }} ({{ part.setNum }})</p>
+                  </div>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="mb-3">
+                  <div class="flex justify-between text-sm text-gray-600 mb-1">
+                    <span>Progress</span>
+                    <span>{{ part.quantityOwned }} / {{ part.quantityNeeded }}</span>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="h-2 rounded-full transition-all duration-300"
+                      [class.bg-green-500]="part.quantityOwned >= part.quantityNeeded"
+                      [class.bg-yellow-500]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                      [class.bg-red-500]="part.quantityOwned === 0"
+                      [style.width.%]="(part.quantityOwned / part.quantityNeeded) * 100">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Quantity controls -->
+                <div class="flex items-center space-x-2">
+                  <label class="text-sm font-medium text-gray-700">Owned:</label>
+                  <div class="flex items-center space-x-1">
+                    <button (click)="updatePartQuantity(part, part.quantityOwned - 1)"
+                      [disabled]="part.quantityOwned <= 0"
+                      class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold">
+                      -
+                    </button>
+                    <input type="number" [value]="part.quantityOwned"
+                      (input)="updatePartQuantity(part, +$any($event.target).value)"
+                      (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
+                      class="w-16 px-2 py-1 text-center border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <button (click)="updatePartQuantity(part, part.quantityOwned + 1)"
+                      [disabled]="part.quantityOwned >= part.quantityNeeded"
+                      class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold">
+                      +
+                    </button>
+                  </div>
+                  <span class="text-sm text-gray-500">/ {{ part.quantityNeeded }}</span>
+                </div>
+
+                <!-- Quick action buttons -->
+                <div class="flex items-center justify-center space-x-2 mt-2">
+                  <button (click)="updatePartQuantity(part, part.quantityNeeded)"
+                    [disabled]="part.quantityOwned >= part.quantityNeeded"
+                    class="w-8 h-6 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                    title="Mark as complete">
+                    ✓
+                  </button>
+                  <button (click)="updatePartQuantity(part, 0)" [disabled]="part.quantityOwned === 0"
+                    class="w-8 h-6 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                    title="Clear quantity">
+                    ✗
+                  </button>
+                </div>
+
+                <!-- Status indicator -->
+                <div class="mt-3 text-center">
+                  <span [class.text-green-600]="part.quantityOwned >= part.quantityNeeded"
+                    [class.text-yellow-600]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                    [class.text-red-600]="part.quantityOwned === 0" class="text-sm font-medium">
+                    <span *ngIf="part.quantityOwned >= part.quantityNeeded">✓ Complete</span>
+                    <span *ngIf="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded">⚠ Partial</span>
+                    <span *ngIf="part.quantityOwned === 0">✗ Missing</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- List View -->
+          <div *ngIf="partsViewType === 'list'" class="bg-white border rounded-lg overflow-hidden w-full">
+            <div class="overflow-x-auto">
+              <table class="w-full divide-y divide-gray-200 table-auto">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-48">Part
+                    </th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Color</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Element ID</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32"
+                      *ngIf="isMissingPartsMode">Set</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32">
+                      Progress</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-36">
+                      Quantity</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-24">
+                      Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  <tr *ngFor="let part of filteredParts; trackBy: trackByPartId"
+                    [class.bg-green-50]="part.quantityOwned >= part.quantityNeeded"
+                    [class.bg-yellow-50]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                    [class.bg-red-50]="part.quantityOwned === 0">
+                    <td class="px-2 py-2 w-48">
+                      <div class="flex items-center">
+                        <div [class]="getListImageSizeClasses() + ' mr-2 flex-shrink-0 cursor-pointer'"
+                          (click)="openImageOverlay(part.imageUrl, part.part.name)">
+                          <img [src]="part.imageUrl" [alt]="part.part.name"
+                            class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm font-medium text-gray-900">{{ part.part.name }}</div>
+                          <div class="text-sm text-gray-500">{{ part.part.part_num }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-28">
+                      <div class="text-sm text-gray-900 truncate">{{ part.color.name }}</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-28">
+                      <div class="text-sm text-gray-900 truncate">{{ part.elementId }}</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-32" *ngIf="isMissingPartsMode">
+                      <div class="text-sm text-gray-900 truncate">{{ part.setName }} ({{ part.setNum }})</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-32">
+                      <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1">
+                        <div class="h-1.5 rounded-full transition-all duration-300"
+                          [class.bg-green-500]="part.quantityOwned >= part.quantityNeeded"
+                          [class.bg-yellow-500]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                          [class.bg-red-500]="part.quantityOwned === 0"
+                          [style.width.%]="(part.quantityOwned / part.quantityNeeded) * 100">
+                        </div>
+                      </div>
+                      <div class="text-sm text-gray-500 text-center">{{ part.quantityOwned }}/{{ part.quantityNeeded }}
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-36">
+                      <div class="flex items-center justify-center space-x-1">
+                        <button (click)="updatePartQuantity(part, part.quantityOwned - 1)"
+                          [disabled]="part.quantityOwned <= 0"
+                          class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold border flex-shrink-0">
+                          -
+                        </button>
+                        <input type="number" [value]="part.quantityOwned"
+                          (input)="updatePartQuantity(part, +$any($event.target).value)"
+                          (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
+                          class="w-10 px-1 py-0.5 text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm flex-shrink-0">
+                        <button (click)="updatePartQuantity(part, part.quantityOwned + 1)"
+                          [disabled]="part.quantityOwned >= part.quantityNeeded"
+                          class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold border flex-shrink-0">
+                          +
+                        </button>
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-24 text-center">
+                      <div class="flex items-center justify-center space-x-1">
+                        <button (click)="updatePartQuantity(part, part.quantityNeeded)"
+                          [disabled]="part.quantityOwned >= part.quantityNeeded"
+                          class="w-6 h-5 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                          title="Mark as complete">
+                          ✓
+                        </button>
+                        <button (click)="updatePartQuantity(part, 0)" [disabled]="part.quantityOwned === 0"
+                          class="w-6 h-5 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                          title="Clear quantity">
+                          ✗
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <ng-template #noPartsFound>
+          <div class="text-center py-8 bg-gray-50 rounded-lg">
+            <p class="text-lg text-gray-600">No parts found matching your search criteria.</p>
+            <button *ngIf="searchTerm" (click)="searchTerm = ''; filterParts()"
+              class="mt-4 text-blue-600 hover:underline">
+              Clear Search
+            </button>
+          </div>
+        </ng-template>
+      </div>
+
+      <!-- Spare Parts Tab -->
+      <div *ngIf="activeTab === 'spare-parts'">
+        <!-- Spare Parts controls -->
+        <div class="flex flex-col md:flex-row md:items-center mb-6 space-y-4 md:space-y-0 md:space-x-4">
+          <div class="flex-1">
+            <h3 class="text-lg font-medium text-gray-800">Spare Parts ({{ totalSparePartsOwned }}/{{
+              totalSparePartsNeeded }})</h3>
+          </div>
+          <div class="flex space-x-2">
+            <!-- View toggle buttons -->
+            <div class="flex border rounded-md overflow-hidden">
+              <button (click)="toggleSparePartsView()" [class.bg-blue-600]="sparePartsViewType === 'tiles'"
+                [class.text-white]="sparePartsViewType === 'tiles'" [class.bg-gray-200]="sparePartsViewType !== 'tiles'"
+                [class.text-gray-700]="sparePartsViewType !== 'tiles'" class="px-3 py-2 text-sm transition">
+                <span class="mr-1">⊞</span> Tiles
+              </button>
+              <button (click)="toggleSparePartsView()" [class.bg-blue-600]="sparePartsViewType === 'list'"
+                [class.text-white]="sparePartsViewType === 'list'" [class.bg-gray-200]="sparePartsViewType !== 'list'"
+                [class.text-gray-700]="sparePartsViewType !== 'list'" class="px-3 py-2 text-sm transition">
+                <span class="mr-1">☰</span> List
+              </button>
+            </div>
+            <button (click)="toggleSortOptions()"
+              class="bg-gray-600 text-white px-3 py-2 rounded-md hover:bg-gray-700 transition text-sm">
+              <span class="mr-1">⚙️</span> Sort
+            </button>
+            <button (click)="markAllSparePartsOwned(true)"
+              class="bg-green-600 text-white px-3 py-2 rounded-md hover:bg-green-700 transition text-sm">
+              Mark All Complete
+            </button>
+            <button (click)="markAllSparePartsOwned(false)"
+              class="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 transition text-sm">
+              Mark All Missing
+            </button>
+          </div>
+        </div>
+
+        <!-- Sort Options Panel for Spare Parts -->
+        <div *ngIf="showSparePartsSortOptions" class="bg-gray-50 border rounded-lg p-4 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium text-gray-800">Sort Spare Parts</h3>
+            <button (click)="resetToDefaultSort()" class="text-sm text-blue-600 hover:underline">
+              Reset to Default
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <div *ngFor="let sortOption of sparePartsSortOptions; let i = index" class="flex items-center space-x-3">
+              <span class="text-sm font-medium text-gray-700 w-8">{{ i + 1 }}.</span>
+
+              <select [(ngModel)]="sortOption.field"
+                (ngModelChange)="updateSortOption('spare-parts', i, $event, sortOption.direction)"
+                class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <option *ngFor="let field of getAllFieldsForDropdown('spare-parts')" [value]="field.value"
+                  [disabled]="isFieldDisabled('spare-parts', field.value, i)">
+                  {{ field.label }}
+                </option>
+              </select>
+
+              <select [value]="sortOption.direction"
+                (change)="updateSortOption('spare-parts', i, sortOption.field, $any($event.target).value)"
+                class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+
+              <button *ngIf="sparePartsSortOptions.length > 1" (click)="removeSortOption('spare-parts', i)"
+                class="text-red-600 hover:text-red-800 text-sm px-2 py-1">
+                ✕
+              </button>
+            </div>
+
+            <div *ngIf="sparePartsSortOptions.length < 3" class="flex justify-start">
+              <button (click)="addSortOption('spare-parts')" class="text-blue-600 hover:text-blue-800 text-sm">
+                + Add Sort Criteria
+              </button>
+            </div>
+          </div>
+
+          <div class="flex justify-end space-x-2 mt-4">
+            <button (click)="closeSortOptions()" class="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm">
+              Cancel
+            </button>
+            <button (click)="applySortChanges()"
+              class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm">
+              Apply Sort
+            </button>
+          </div>
+        </div>
+
+        <!-- Spare Parts list -->
+        <div *ngIf="spareParts.length > 0; else noSpareParts">
+          <!-- Tiles View -->
+          <div *ngIf="sparePartsViewType === 'tiles'" class="grid gap-2 sm:gap-3 md:gap-4"
+            style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+            <div *ngFor="let part of spareParts; trackBy: trackBySparePartId" class="border rounded-lg overflow-hidden"
+              [class.bg-green-50]="part.quantityOwned >= part.quantityNeeded"
+              [class.bg-yellow-50]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+              [class.bg-red-50]="part.quantityOwned === 0">
+              <div class="p-4">
+                <!-- Horizontal layout for 1x and 2x, vertical layout for 4x -->
+                <div [class]="shouldUseVerticalLayout() ? 'flex flex-col items-center mb-4' : 'flex items-start mb-4'">
+                  <div
+                    [class]="getImageSizeClasses() + (shouldUseVerticalLayout() ? ' mb-3 flex-shrink-0 cursor-pointer' : ' mr-4 flex-shrink-0 cursor-pointer')"
+                    (click)="openImageOverlay(part.imageUrl, part.part.name)">
+                    <img [src]="part.imageUrl" [alt]="part.part.name"
+                      class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                  </div>
+                  <div [class]="shouldUseVerticalLayout() ? 'flex-1 text-center' : 'flex-1'">
+                    <h3 class="font-medium text-gray-800">{{ part.part.name }}</h3>
+                    <p class="text-sm text-gray-600">Part #: {{ part.part.part_num }}</p>
+                    <p class="text-sm text-gray-600">Color: {{ part.color.name }}</p>
+                    <p class="text-sm text-gray-600" *ngIf="part.elementId">Element ID: {{ part.elementId }}</p>
+                    <p class="text-sm text-orange-600">Spare Part</p>
+                  </div>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="mb-3">
+                  <div class="flex justify-between text-sm text-gray-600 mb-1">
+                    <span>Progress</span>
+                    <span>{{ part.quantityOwned }} / {{ part.quantityNeeded }}</span>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="h-2 rounded-full transition-all duration-300"
+                      [class.bg-green-500]="part.quantityOwned >= part.quantityNeeded"
+                      [class.bg-yellow-500]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                      [class.bg-red-500]="part.quantityOwned === 0"
+                      [style.width.%]="(part.quantityOwned / part.quantityNeeded) * 100">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Quantity controls -->
+                <div class="flex items-center space-x-2">
+                  <label class="text-sm font-medium text-gray-700">Owned:</label>
+                  <div class="flex items-center space-x-1">
+                    <button (click)="updatePartQuantity(part, part.quantityOwned - 1)"
+                      [disabled]="part.quantityOwned <= 0"
+                      class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold">
+                      -
+                    </button>
+                    <input type="number" [value]="part.quantityOwned"
+                      (input)="updatePartQuantity(part, +$any($event.target).value)"
+                      (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
+                      class="w-16 px-2 py-1 text-center border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <button (click)="updatePartQuantity(part, part.quantityOwned + 1)"
+                      [disabled]="part.quantityOwned >= part.quantityNeeded"
+                      class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold">
+                      +
+                    </button>
+                  </div>
+                  <span class="text-sm text-gray-500">/ {{ part.quantityNeeded }}</span>
+                </div>
+
+                <!-- Quick action buttons -->
+                <div class="flex items-center justify-center space-x-2 mt-2">
+                  <button (click)="updatePartQuantity(part, part.quantityNeeded)"
+                    [disabled]="part.quantityOwned >= part.quantityNeeded"
+                    class="w-8 h-6 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                    title="Mark as complete">
+                    ✓
+                  </button>
+                  <button (click)="updatePartQuantity(part, 0)" [disabled]="part.quantityOwned === 0"
+                    class="w-8 h-6 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                    title="Clear quantity">
+                    ✗
+                  </button>
+                </div>
+
+                <!-- Status indicator -->
+                <div class="mt-3 text-center">
+                  <span [class.text-green-600]="part.quantityOwned >= part.quantityNeeded"
+                    [class.text-yellow-600]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                    [class.text-red-600]="part.quantityOwned === 0" class="text-sm font-medium">
+                    <span *ngIf="part.quantityOwned >= part.quantityNeeded">✓ Complete</span>
+                    <span *ngIf="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded">⚠ Partial</span>
+                    <span *ngIf="part.quantityOwned === 0">✗ Missing</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- List View -->
+          <div *ngIf="sparePartsViewType === 'list'" class="bg-white border rounded-lg overflow-hidden w-full">
+            <div class="overflow-x-auto">
+              <table class="w-full divide-y divide-gray-200 table-auto">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-48">Part
+                    </th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Color</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-28">
+                      Element ID</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32">
+                      Progress</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-36">
+                      Quantity</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-20">
+                      Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  <tr *ngFor="let part of spareParts; trackBy: trackBySparePartId"
+                    [class.bg-green-50]="part.quantityOwned >= part.quantityNeeded"
+                    [class.bg-yellow-50]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                    [class.bg-red-50]="part.quantityOwned === 0">
+                    <td class="px-2 py-2 w-48">
+                      <div class="flex items-center">
+                        <div [class]="getListImageSizeClasses() + ' mr-2 flex-shrink-0 cursor-pointer'"
+                          (click)="openImageOverlay(part.imageUrl, part.part.name)">
+                          <img [src]="part.imageUrl" [alt]="part.part.name"
+                            class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm font-medium text-gray-900">{{ part.part.name }}</div>
+                          <div class="text-sm text-gray-500">{{ part.part.part_num }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-28">
+                      <div class="text-sm text-gray-900 truncate">{{ part.color.name }}</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-28">
+                      <div class="text-sm text-gray-900 truncate">{{ part.elementId }}</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-32">
+                      <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1">
+                        <div class="h-1.5 rounded-full transition-all duration-300"
+                          [class.bg-green-500]="part.quantityOwned >= part.quantityNeeded"
+                          [class.bg-yellow-500]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                          [class.bg-red-500]="part.quantityOwned === 0"
+                          [style.width.%]="(part.quantityOwned / part.quantityNeeded) * 100">
+                        </div>
+                      </div>
+                      <div class="text-sm text-gray-500 text-center">{{ part.quantityOwned }}/{{ part.quantityNeeded }}
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-36">
+                      <div class="flex items-center justify-center space-x-1">
+                        <button (click)="updatePartQuantity(part, part.quantityOwned - 1)"
+                          [disabled]="part.quantityOwned <= 0"
+                          class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold border flex-shrink-0">
+                          -
+                        </button>
+                        <input type="number" [value]="part.quantityOwned"
+                          (input)="updatePartQuantity(part, +$any($event.target).value)"
+                          (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
+                          class="w-10 px-1 py-0.5 text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-sm flex-shrink-0">
+                        <button (click)="updatePartQuantity(part, part.quantityOwned + 1)"
+                          [disabled]="part.quantityOwned >= part.quantityNeeded"
+                          class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm font-bold border flex-shrink-0">
+                          +
+                        </button>
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-24 text-center">
+                      <div class="flex items-center justify-center space-x-1">
+                        <button (click)="updatePartQuantity(part, part.quantityNeeded)"
+                          [disabled]="part.quantityOwned >= part.quantityNeeded"
+                          class="w-6 h-5 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                          title="Mark as complete">
+                          ✓
+                        </button>
+                        <button (click)="updatePartQuantity(part, 0)" [disabled]="part.quantityOwned === 0"
+                          class="w-6 h-5 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                          title="Clear quantity">
+                          ✗
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <ng-template #noSpareParts>
+          <div class="text-center py-8 bg-gray-50 rounded-lg">
+            <p class="text-lg text-gray-600">No spare parts found for this set.</p>
+          </div>
+        </ng-template>
+      </div>
+
+      <!-- Minifigs Tab -->
+      <div *ngIf="activeTab === 'minifigs'">
+        <!-- Minifigs controls -->
+        <div class="flex flex-col md:flex-row md:items-center mb-6 space-y-4 md:space-y-0 md:space-x-4">
+          <div class="flex-1">
+            <h3 class="text-lg font-medium text-gray-800">Minifigures ({{ getTotalMinifigPartsProgress().owned }}/{{ getTotalMinifigPartsProgress().total }})</h3>
+          </div>
+          <div class="flex space-x-2">
+            <!-- View toggle buttons -->
+            <div class="flex border rounded-md overflow-hidden">
+              <button (click)="toggleMinifigsView()" [class.bg-blue-600]="minifigsViewType === 'tiles'"
+                [class.text-white]="minifigsViewType === 'tiles'" [class.bg-gray-200]="minifigsViewType !== 'tiles'"
+                [class.text-gray-700]="minifigsViewType !== 'tiles'" class="px-3 py-2 text-sm transition">
+                <span class="mr-1">⊞</span> Tiles
+              </button>
+              <button (click)="toggleMinifigsView()" [class.bg-blue-600]="minifigsViewType === 'list'"
+                [class.text-white]="minifigsViewType === 'list'" [class.bg-gray-200]="minifigsViewType !== 'list'"
+                [class.text-gray-700]="minifigsViewType !== 'list'" class="px-3 py-2 text-sm transition">
+                <span class="mr-1">☰</span> List
+              </button>
+            </div>
+            <button (click)="toggleSortOptions()"
+              class="bg-gray-600 text-white px-3 py-2 rounded-md hover:bg-gray-700 transition text-sm">
+              <span class="mr-1">⚙️</span> Sort
+            </button>
+            <button (click)="markAllMinifigsOwned(true)"
+              class="bg-green-600 text-white px-3 py-2 rounded-md hover:bg-green-700 transition text-sm">
+              Mark All Complete
+            </button>
+            <button (click)="markAllMinifigsOwned(false)"
+              class="bg-red-600 text-white px-3 py-2 rounded-md hover:bg-red-700 transition text-sm">
+              Mark All Missing
+            </button>
+          </div>
+        </div>
+
+        <!-- Sort Options Panel for Minifigs -->
+        <div *ngIf="showMinifigsSortOptions" class="bg-gray-50 border rounded-lg p-4 mb-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium text-gray-800">Sort Minifigures</h3>
+            <button (click)="resetToDefaultSort()" class="text-sm text-blue-600 hover:underline">
+              Reset to Default
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <div *ngFor="let sortOption of minifigsSortOptions; let i = index" class="flex items-center space-x-3">
+              <span class="text-sm font-medium text-gray-700 w-8">{{ i + 1 }}.</span>
+
+              <select [(ngModel)]="sortOption.field"
+                (ngModelChange)="updateSortOption('minifigs', i, $event, sortOption.direction)"
+                class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <option *ngFor="let field of getAllFieldsForDropdown('minifigs')" [value]="field.value"
+                  [disabled]="isFieldDisabled('minifigs', field.value, i)">
+                  {{ field.label }}
+                </option>
+              </select>
+
+              <select [value]="sortOption.direction"
+                (change)="updateSortOption('minifigs', i, sortOption.field, $any($event.target).value)"
+                class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+
+              <button *ngIf="minifigsSortOptions.length > 1" (click)="removeSortOption('minifigs', i)"
+                class="text-red-600 hover:text-red-800 text-sm px-2 py-1">
+                ✕
+              </button>
+            </div>
+
+            <div *ngIf="minifigsSortOptions.length < 3" class="flex justify-start">
+              <button (click)="addSortOption('minifigs')" class="text-blue-600 hover:text-blue-800 text-sm">
+                + Add Sort Criteria
+              </button>
+            </div>
+          </div>
+
+          <div class="flex justify-end space-x-2 mt-4">
+            <button (click)="closeSortOptions()" class="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm">
+              Cancel
+            </button>
+            <button (click)="applySortChanges()"
+              class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition text-sm">
+              Apply Sort
+            </button>
+          </div>
+        </div>
+
+        <!-- Minifigs list -->
+        <div *ngIf="minifigs.length > 0; else noMinifigs">
+          <!-- Tiles View -->
+          <div *ngIf="minifigsViewType === 'tiles'" class="grid gap-2 sm:gap-3 md:gap-4"
+            style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+            <div *ngFor="let minifig of minifigs; trackBy: trackByMinifigId" class="border rounded-lg overflow-hidden"
+              [class.bg-green-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
+              [class.bg-yellow-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
+              [class.bg-red-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0">
+              <div class="p-4">
+                <!-- Horizontal layout for 1x and 2x, vertical layout for 4x -->
+                <div [class]="shouldUseVerticalLayout() ? 'flex flex-col items-center mb-4' : 'flex items-start mb-4'">
+                  <div
+                    [class]="getImageSizeClasses() + (shouldUseVerticalLayout() ? ' mb-3 flex-shrink-0 cursor-pointer' : ' mr-4 flex-shrink-0 cursor-pointer')"
+                    (click)="openImageOverlay(minifig.imageUrl, minifig.minifig.name)">
+                    <img [src]="minifig.imageUrl" [alt]="minifig.minifig.name"
+                      class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                  </div>
+                  <div [class]="shouldUseVerticalLayout() ? 'flex-1 text-center' : 'flex-1'">
+                    <h3 class="font-medium text-gray-800">{{ minifig.minifig.name }}</h3>
+                    <p class="text-sm text-gray-600">Fig #: {{ minifig.minifig.fig_num }}</p>
+                    <p class="text-sm text-gray-600">Parts: {{ minifig.minifig.num_parts }}</p>
+                    <p class="text-sm text-blue-600 font-medium" *ngIf="isMissingPartsMode && minifig.setName">From: {{
+                      minifig.setName }} ({{ minifig.setNum }})</p>
+                  </div>
+                </div>
+
+                <!-- Progress bar -->
+                <div class="mb-3">
+                  <div class="flex justify-between text-sm text-gray-600 mb-1">
+                    <span>Parts Progress</span>
+                    <span>{{ getMinifigPartsProgress(minifig.minifig.fig_num).owned }} / {{ getMinifigPartsProgress(minifig.minifig.fig_num).total }}</span>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div class="h-2 rounded-full transition-all duration-300"
+                      [class.bg-green-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
+                      [class.bg-yellow-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
+                      [class.bg-red-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0"
+                      [style.width.%]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Status indicator -->
+                <div class="mt-3 text-center">
+                  <span [class.text-green-600]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
+                    [class.text-yellow-600]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
+                    [class.text-red-600]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0" class="text-sm font-medium">
+                    <span *ngIf="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100">✓ Complete</span>
+                    <span *ngIf="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100">⚠ Partial ({{ getMinifigPartsProgress(minifig.minifig.fig_num).percentage | number:'1.0-0' }}%)</span>
+                    <span *ngIf="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0">✗ Missing</span>
+                  </span>
+                </div>
+
+                <!-- Show Parts Toggle Button -->
+                <div class="mt-4 text-center">
+                  <button (click)="toggleMinifigParts(minifig.minifig.fig_num)"
+                    class="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 transition text-sm flex items-center mx-auto">
+                    <span class="mr-1" *ngIf="!isMinifigPartsExpanded(minifig.minifig.fig_num)">▶</span>
+                    <span class="mr-1" *ngIf="isMinifigPartsExpanded(minifig.minifig.fig_num)">▼</span>
+                    {{ isMinifigPartsExpanded(minifig.minifig.fig_num) ? 'Hide Parts' : 'Show Parts' }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Expandable Parts Section for Tiles View -->
+              <div *ngIf="isMinifigPartsExpanded(minifig.minifig.fig_num)" class="border-t border-gray-200 mt-2">
+                <div class="p-4 bg-gray-50">
+                  <h4 class="text-sm font-medium text-gray-800 mb-3">Minifigure Parts</h4>
+
+                  <!-- Parts in tile format (smaller than main parts) -->
+                  <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));">
+                    <div *ngFor="let part of getMinifigParts(minifig.minifig.fig_num)"
+                         class="border rounded-lg overflow-hidden bg-white"
+                         [class.bg-green-50]="part.quantityOwned >= part.quantityNeeded"
+                         [class.bg-yellow-50]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                         [class.bg-red-50]="part.quantityOwned === 0">
+                      <div class="p-3">
+                        <!-- Part Image and Info -->
+                        <div class="flex items-start mb-3">
+                          <div class="w-12 h-12 bg-gray-100 rounded overflow-hidden mr-3 flex-shrink-0 cursor-pointer"
+                               (click)="openImageOverlay(part.imageUrl, part.part.name)">
+                            <img [src]="part.imageUrl" [alt]="part.part.name"
+                                 class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <h5 class="text-xs font-medium text-gray-800 truncate">{{ part.part.name }}</h5>
+                            <p class="text-xs text-gray-600 truncate">{{ part.part.part_num }}</p>
+                            <p class="text-xs text-gray-600 truncate">{{ part.color.name }}</p>
+                          </div>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div class="mb-2">
+                          <div class="flex justify-between text-xs text-gray-600 mb-1">
+                            <span>Progress</span>
+                            <span>{{ part.quantityOwned }} / {{ part.quantityNeeded }}</span>
+                          </div>
+                          <div class="w-full bg-gray-200 rounded-full h-1.5">
+                            <div class="h-1.5 rounded-full transition-all duration-300"
+                                 [class.bg-green-500]="part.quantityOwned >= part.quantityNeeded"
+                                 [class.bg-yellow-500]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                                 [class.bg-red-500]="part.quantityOwned === 0"
+                                 [style.width.%]="(part.quantityOwned / part.quantityNeeded) * 100">
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Quantity controls (smaller) -->
+                        <div class="flex items-center justify-center space-x-1">
+                          <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned - 1)"
+                                  [disabled]="part.quantityOwned <= 0"
+                                  class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
+                            -
+                          </button>
+                          <input type="number" [value]="part.quantityOwned"
+                                 (input)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, +$any($event.target).value)"
+                                 (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
+                                 class="w-12 px-1 py-0.5 text-center border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs">
+                          <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned + 1)"
+                                  [disabled]="part.quantityOwned >= part.quantityNeeded"
+                                  class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
+                            +
+                          </button>
+                        </div>
+
+                        <!-- Status indicator -->
+                        <div class="mt-2 text-center">
+                          <span [class.text-green-600]="part.quantityOwned >= part.quantityNeeded"
+                                [class.text-yellow-600]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                                [class.text-red-600]="part.quantityOwned === 0" class="text-xs font-medium">
+                            <span *ngIf="part.quantityOwned >= part.quantityNeeded">✓</span>
+                            <span *ngIf="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded">⚠</span>
+                            <span *ngIf="part.quantityOwned === 0">✗</span>
+                          </span>
+                        </div>
+
+                        <!-- Quick action buttons -->
+                        <div class="flex items-center justify-center space-x-1 mt-2">
+                          <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityNeeded)"
+                                  [disabled]="part.quantityOwned >= part.quantityNeeded"
+                                  class="w-6 h-4 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                                  title="Mark as complete">
+                            ✓
+                          </button>
+                          <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, 0)"
+                                  [disabled]="part.quantityOwned === 0"
+                                  class="w-6 h-4 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                                  title="Clear quantity">
+                            ✗
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- List View -->
+          <div *ngIf="minifigsViewType === 'list'" class="bg-white border rounded-lg overflow-hidden w-full">
+            <div class="overflow-x-auto">
+              <table class="w-full divide-y divide-gray-200 table-auto">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-48">
+                      Minifigure</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-24">
+                      Parts</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32"
+                      *ngIf="isMissingPartsMode">Set</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32">
+                      Parts Progress</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-24">
+                      Show Parts</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  <ng-container *ngFor="let minifig of minifigs; trackBy: trackByMinifigId">
+                    <!-- Main minifigure row -->
+                    <tr [class.bg-green-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
+                      [class.bg-yellow-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
+                      [class.bg-red-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0">
+                      <td class="px-2 py-2 w-48">
+                        <div class="flex items-center">
+                          <div [class]="getListImageSizeClasses() + ' mr-2 flex-shrink-0 cursor-pointer'"
+                            (click)="openImageOverlay(minifig.imageUrl, minifig.minifig.name)">
+                            <img [src]="minifig.imageUrl" [alt]="minifig.minifig.name"
+                              class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                          </div>
+                          <div class="min-w-0 flex-1">
+                            <div class="text-sm font-medium text-gray-900">{{ minifig.minifig.name }}</div>
+                            <div class="text-sm text-gray-500">{{ minifig.minifig.fig_num }}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="px-2 py-2 whitespace-nowrap w-24">
+                        <div class="text-sm text-gray-900">{{ minifig.minifig.num_parts }}</div>
+                      </td>
+                      <td class="px-2 py-2 whitespace-nowrap w-32" *ngIf="isMissingPartsMode">
+                        <div class="text-sm text-gray-900 truncate">{{ minifig.setName }} ({{ minifig.setNum }})</div>
+                      </td>
+                      <td class="px-2 py-2 whitespace-nowrap w-32">
+                        <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1">
+                          <div class="h-1.5 rounded-full transition-all duration-300"
+                            [class.bg-green-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
+                            [class.bg-yellow-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
+                            [class.bg-red-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0"
+                            [style.width.%]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage">
+                          </div>
+                        </div>
+                        <div class="text-sm text-gray-500 text-center">{{ getMinifigPartsProgress(minifig.minifig.fig_num).owned }}/{{ getMinifigPartsProgress(minifig.minifig.fig_num).total }}</div>
+                      </td>
+                      <td class="px-2 py-2 whitespace-nowrap w-24 text-center">
+                        <button (click)="toggleMinifigParts(minifig.minifig.fig_num)"
+                          class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 transition flex items-center">
+                          <span class="mr-1" *ngIf="!isMinifigPartsExpanded(minifig.minifig.fig_num)">▶</span>
+                          <span class="mr-1" *ngIf="isMinifigPartsExpanded(minifig.minifig.fig_num)">▼</span>
+                          {{ isMinifigPartsExpanded(minifig.minifig.fig_num) ? 'Hide' : 'Show' }}
+                        </button>
+                      </td>
+                    </tr>
+
+                    <!-- Expandable parts row -->
+                    <tr *ngIf="isMinifigPartsExpanded(minifig.minifig.fig_num)" class="bg-gray-50">
+                      <td [attr.colspan]="isMissingPartsMode ? 7 : 6" class="px-2 py-4">
+                        <div class="pl-6">
+                          <h4 class="text-sm font-medium text-gray-800 mb-3">Minifigure Parts</h4>
+
+                          <!-- Parts in list format within the expanded row -->
+                          <div class="bg-white border rounded overflow-hidden">
+                            <div class="overflow-x-auto">
+                              <table class="w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-100">
+                                  <tr>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                                    <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                  <tr *ngFor="let part of getMinifigParts(minifig.minifig.fig_num)"
+                                    [class.bg-green-50]="part.quantityOwned >= part.quantityNeeded"
+                                    [class.bg-yellow-50]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                                    [class.bg-red-50]="part.quantityOwned === 0">
+                                    <td class="px-2 py-2">
+                                      <div class="flex items-center">
+                                        <div class="w-8 h-8 bg-gray-100 rounded overflow-hidden mr-2 flex-shrink-0 cursor-pointer"
+                                             (click)="openImageOverlay(part.imageUrl, part.part.name)">
+                                          <img [src]="part.imageUrl" [alt]="part.part.name"
+                                               class="w-full h-full object-contain hover:opacity-80 transition-opacity">
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                          <div class="text-xs font-medium text-gray-900 truncate">{{ part.part.name }}</div>
+                                          <div class="text-xs text-gray-500 truncate">{{ part.part.part_num }}</div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td class="px-2 py-2 whitespace-nowrap">
+                                      <div class="text-xs text-gray-900 truncate">{{ part.color.name }}</div>
+                                    </td>
+                                    <td class="px-2 py-2 whitespace-nowrap">
+                                      <div class="w-full bg-gray-200 rounded-full h-1 mb-1">
+                                        <div class="h-1 rounded-full transition-all duration-300"
+                                             [class.bg-green-500]="part.quantityOwned >= part.quantityNeeded"
+                                             [class.bg-yellow-500]="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded"
+                                             [class.bg-red-500]="part.quantityOwned === 0"
+                                             [style.width.%]="(part.quantityOwned / part.quantityNeeded) * 100">
+                                        </div>
+                                      </div>
+                                      <div class="text-xs text-gray-500 text-center">{{ part.quantityOwned }}/{{ part.quantityNeeded }}</div>
+                                    </td>
+                                    <td class="px-2 py-2 whitespace-nowrap">
+                                      <div class="flex items-center justify-center space-x-1">
+                                        <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned - 1)"
+                                                [disabled]="part.quantityOwned <= 0"
+                                                class="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
+                                          -
+                                        </button>
+                                        <input type="number" [value]="part.quantityOwned"
+                                               (input)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, +$any($event.target).value)"
+                                               (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
+                                               class="w-8 px-1 py-0.5 text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs">
+                                        <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned + 1)"
+                                                [disabled]="part.quantityOwned >= part.quantityNeeded"
+                                                class="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
+                                          +
+                                        </button>
+                                      </div>
+                                    </td>
+                                    <td class="px-2 py-2 whitespace-nowrap text-center">
+                                      <div class="flex items-center justify-center space-x-1">
+                                        <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityNeeded)"
+                                                [disabled]="part.quantityOwned >= part.quantityNeeded"
+                                                class="w-5 h-4 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                                                title="Mark as complete">
+                                          ✓
+                                        </button>
+                                        <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, 0)"
+                                                [disabled]="part.quantityOwned === 0"
+                                                class="w-5 h-4 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
+                                                title="Clear quantity">
+                                          ✗
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </ng-container>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <ng-template #noMinifigs>
+          <div class="text-center py-8 bg-gray-50 rounded-lg">
+            <p class="text-lg text-gray-600">No minifigures found for this set.</p>
+          </div>
+        </ng-template>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Overlay -->
+  <div *ngIf="showImageOverlay" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+    (click)="onOverlayClick($event)">
+    <div class="relative max-w-4xl max-h-4xl p-4">
+      <!-- Close button -->
+      <button (click)="closeImageOverlay()"
+        class="absolute top-2 right-2 text-white hover:text-gray-300 text-2xl font-bold z-10 bg-black bg-opacity-50 rounded-full w-8 h-8 flex items-center justify-center">
+        ×
+      </button>
+      <!-- Image -->
+      <img [src]="getLargeImageUrl(overlayImageUrl)" [alt]="overlayImageAlt"
+        class="max-w-full max-h-full object-contain" style="max-width: 800px; max-height: 800px;">
+      <!-- Copyright Notice -->
+      <div class="absolute bottom-2 left-2 right-2 bg-black bg-opacity-75 text-white text-xs p-2 rounded">
+        <p class="text-center">
+          Image © <a href="https://rebrickable.com" target="_blank" rel="noopener noreferrer"
+            class="text-blue-300 hover:text-blue-100 underline">Rebrickable</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Action Buttons -->
+  <div class="fixed bottom-6 right-6 flex flex-col space-y-3 z-40">
+    <!-- Scroll to Top -->
+    <button (click)="scrollToTop()"
+      class="w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-110"
+      title="Scroll to top">
+      <span class="text-lg">↑</span>
+    </button>
+
+    <!-- Scroll to Bottom -->
+    <button (click)="scrollToBottom()"
+      class="w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-110"
+      title="Scroll to bottom">
+      <span class="text-lg">↓</span>
+    </button>
+
+    <!-- Undo Button -->
+    <div class="relative">
+      <button *ngIf="!isMissingPartsMode" (click)="performUndo()" [disabled]="!canUndo"
+        class="w-12 h-12 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-100 disabled:hover:scale-100"
+        [title]="canUndo ? 'Undo last action (Cmd/Ctrl+Z) - ' + (userInventory?.undoHistory?.length || 0) + ' actions available' : 'No actions to undo'">
+        <span class="text-lg">⟲</span>
+      </button>
+      <!-- Undo count badge -->
+      <span *ngIf="!isMissingPartsMode && canUndo && (userInventory?.undoHistory?.length || 0) > 0"
+        class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+        {{ userInventory?.undoHistory?.length }}
+      </span>
+    </div>
+  </div>
+
+  <!-- Undo Notification Toast -->
+  <div *ngIf="showUndoNotification"
+    class="fixed top-20 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-all duration-300">
+    <div class="flex items-center space-x-2">
+      <span class="text-lg">✓</span>
+      <span>{{ undoNotificationMessage }}</span>
+    </div>
+  </div>
+
+</div>
