@@ -37,11 +37,10 @@ import { Subscription } from 'rxjs';
             </div>
           </div>
 
-          <!-- Step Counter -->
+          <!-- Record Counter -->
           <div class="flex justify-between items-center mt-2 text-xs text-gray-500">
-            <span *ngIf="loadingState.total > 0">Step {{ loadingState.current }} of {{ loadingState.total }}</span>
+            <span *ngIf="loadingState.total > 0">{{ loadingState.current | number }} of {{ loadingState.total | number }} records</span>
             <span *ngIf="loadingState.total === 0">&nbsp;</span>
-            <span *ngIf="loadingState.percentage < 100 && estimatedTime">{{ estimatedTime }}</span>
             <span *ngIf="loadingState.percentage === 100" class="text-green-600 font-medium">Almost done!</span>
           </div>
         </div>
@@ -87,9 +86,7 @@ export class LoadingOverlayComponent implements OnInit, OnDestroy {
   };
 
   showLargeDatasetNotice = false;
-  estimatedTime: string | null = null;
   private subscription?: Subscription;
-  private startTime?: number;
 
   constructor(private loadingService: LoadingService) {}
 
@@ -97,44 +94,16 @@ export class LoadingOverlayComponent implements OnInit, OnDestroy {
     this.subscription = this.loadingService.loading$.subscribe(state => {
       this.loadingState = state;
 
-      // Calculate estimated time without causing change detection errors
-      if (state.isLoading && state.percentage > 0) {
-        if (!this.startTime) {
-          this.startTime = Date.now();
-        }
-        this.updateEstimatedTime();
-      }
-
       // Show large dataset notice for long operations
-      if (state.isLoading && !this.startTime) {
-        this.startTime = Date.now();
+      if (state.isLoading && !this.showLargeDatasetNotice) {
         this.showLargeDatasetNotice = true;
       } else if (!state.isLoading) {
-        this.startTime = undefined;
         this.showLargeDatasetNotice = false;
-        this.estimatedTime = null;
       }
     });
   }
 
   ngOnDestroy(): void {
     this.subscription?.unsubscribe();
-  }
-
-  private updateEstimatedTime(): void {
-    if (!this.startTime || this.loadingState.percentage === 0) {
-      this.estimatedTime = 'Calculating...';
-      return;
-    }
-
-    const elapsed = Date.now() - this.startTime;
-    const rate = this.loadingState.percentage / elapsed;
-    const remaining = (100 - this.loadingState.percentage) / rate;
-
-    if (remaining < 60000) { // Less than 1 minute
-      this.estimatedTime = `${Math.round(remaining / 1000)}s remaining`;
-    } else { // More than 1 minute
-      this.estimatedTime = `${Math.round(remaining / 60000)}m remaining`;
-    }
   }
 }

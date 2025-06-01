@@ -64,40 +64,55 @@ export class DataService {
       this.loadingService.updateProgress({ isLoading: true, phase: 'Initializing...', percentage: 0 });
       let csvData: any = null;
 
-      // Check if we should use IndexedDB or CSV files
-      if (IndexedDBService.isSupported()) {
+      // Check if we should use IndexedDB or CSV files - be more defensive
+      if (IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
         this.loadingService.updateProgress({ phase: 'Checking cache...', percentage: 5 });
 
-        const startTime = performance.now();
-        const isCacheValid = await this.indexedDBService.isCSVCacheValid();
-        const cacheCheckTime = performance.now() - startTime;
+        try {
+          // Check cache validity - no timeout, let it complete naturally during database initialization
+          const isCacheValid = await this.indexedDBService.isCSVCacheValid();
 
-        if (isCacheValid) {
-          this.loadingService.updateProgress({ phase: 'Loading from cache...', percentage: 15 });
+          if (isCacheValid) {
+            console.log('✅ Cache validation passed - using cached data');
+            this.loadingService.updateProgress({ phase: 'Loading from cache...', percentage: 15 });
 
-          const cacheStartTime = performance.now();
-          csvData = await this.indexedDBService.loadCSVDataCache();
-          const cacheLoadTime = performance.now() - cacheStartTime;
+            // Add more detailed progress during cache loading
+            this.loadingService.updateProgress({ phase: 'Reading cached data from IndexedDB...', percentage: 25 });
+            csvData = await this.indexedDBService.loadCSVDataCache((phase: string, percentage: number) => {
+              this.loadingService.updateProgress({ phase, percentage });
+            });
+            this.loadingService.updateProgress({ phase: 'Cache data loaded successfully', percentage: 85 });
+          } else {
+            console.log('❌ Cache validation failed - loading from CSV files');
+            this.loadingService.updateProgress({ phase: 'Cache invalid, loading CSV files...', percentage: 12 });
+            csvData = await this.loadFromCSVFilesWithProgress();
 
-          this.loadingService.updateProgress({ phase: 'Cache loaded successfully', percentage: 85 });
-        } else {
-          this.loadingService.updateProgress({ phase: 'Cache invalid, loading CSV files...', percentage: 12 });
-          csvData = await this.loadFromCSVFilesWithProgress();
-
-          // Save to IndexedDB cache
-          if (csvData) {
-            await this.saveToIndexedDB(csvData);
+            // Try to save to IndexedDB cache if possible
+            if (csvData && IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
+              try {
+                await this.saveToIndexedDB(csvData);
+              } catch (saveError) {
+                console.warn('Failed to save to cache after CSV load:', saveError);
+              }
+            }
           }
+        } catch (error) {
+          console.warn('IndexedDB operation failed, falling back to CSV files:', error);
+          this.loadingService.updateProgress({ phase: 'Cache error, loading CSV files...', percentage: 12 });
+          csvData = await this.loadFromCSVFilesWithProgress();
         }
       } else {
+        // IndexedDB not supported or disabled
+        console.log('IndexedDB not available, loading from CSV files');
+        this.loadingService.updateProgress({ phase: 'Loading CSV files...', percentage: 12 });
         csvData = await this.loadFromCSVFilesWithProgress();
       }
 
       // Load data into memory
-      this.loadingService.updateProgress({ phase: 'Loading into memory...', percentage: 95 });
+      this.loadingService.updateProgress({ phase: 'Organizing data structures...', percentage: 92 });
       this.loadDataIntoMemory(csvData);
 
-      this.loadingService.updateProgress({ phase: 'Initializing cache...', percentage: 98 });
+      this.loadingService.updateProgress({ phase: 'Building search indexes...', percentage: 96 });
       this.initializeCache();
 
       this.loadingService.updateProgress({ phase: 'Completed!', percentage: 100 });
@@ -357,19 +372,19 @@ export class DataService {
     if (this.cacheInitialized) return;
 
     // Cache parts
-    this.loadingService.updateProgress({ phase: 'Caching parts...', percentage: 98.2 });
+    this.loadingService.updateProgress({ phase: 'Indexing parts for quick lookup...', percentage: 96.5 });
     this.parts.forEach(part => {
       this.partsCache.set(part.part_num, part);
     });
 
     // Cache colors
-    this.loadingService.updateProgress({ phase: 'Caching colors...', percentage: 98.4 });
+    this.loadingService.updateProgress({ phase: 'Indexing colors...', percentage: 97 });
     this.colors.forEach(color => {
       this.colorsCache.set(color.id, color);
     });
 
     // Cache elements
-    this.loadingService.updateProgress({ phase: 'Caching elements...', percentage: 98.6 });
+    this.loadingService.updateProgress({ phase: 'Indexing elements and part-color combinations...', percentage: 97.5 });
     this.elements.forEach(element => {
       this.elementsCache.set(element.element_id, element);
       // Also cache by part_num + color_id combination
@@ -377,13 +392,13 @@ export class DataService {
     });
 
     // Cache minifigs
-    this.loadingService.updateProgress({ phase: 'Caching minifigs...', percentage: 98.7 });
+    this.loadingService.updateProgress({ phase: 'Indexing minifigures...', percentage: 98 });
     this.minifigs.forEach(minifig => {
       this.minifigsCache.set(minifig.fig_num, minifig);
     });
 
     // Cache inventory parts by inventory_id for O(1) lookups
-    this.loadingService.updateProgress({ phase: 'Indexing inventory parts...', percentage: 98.8 });
+    this.loadingService.updateProgress({ phase: 'Building inventory parts index...', percentage: 98.5 });
     this.inventoryParts.forEach(part => {
         if (!this.inventoryPartsCache.has(part.inventory_id)) {
           this.inventoryPartsCache.set(part.inventory_id, []);
@@ -392,7 +407,7 @@ export class DataService {
       });
 
     // Cache inventory minifigs by inventory_id for O(1) lookups
-    this.loadingService.updateProgress({ phase: 'Indexing inventory minifigs...', percentage: 98.9 });
+    this.loadingService.updateProgress({ phase: 'Building inventory minifigures index...', percentage: 99 });
     this.inventoryMinifigs.forEach(minifig => {
       if (!this.inventoryMinifigsCache.has(minifig.inventory_id)) {
         this.inventoryMinifigsCache.set(minifig.inventory_id, []);
@@ -400,7 +415,7 @@ export class DataService {
       this.inventoryMinifigsCache.get(minifig.inventory_id)!.push(minifig);
     });
 
-    this.loadingService.updateProgress({ phase: 'Cache initialization complete', percentage: 99 });
+    this.loadingService.updateProgress({ phase: 'Finalizing indexes...', percentage: 99.5 });
     this.cacheInitialized = true;
   }
 
@@ -412,6 +427,8 @@ export class DataService {
       // Clear existing cache only if IndexedDB is supported
       if (IndexedDBService.isSupported()) {
         await this.indexedDBService.clearCSVCache();
+        // Reset session state after clearing to allow fresh caching
+        this.indexedDBService.resetSessionState();
       }
 
       // Reset data loaded state
@@ -430,8 +447,8 @@ export class DataService {
       // Load fresh data
       await this.loadData();
 
-          return true;
-        } catch (error) {
+      return true;
+    } catch (error) {
       console.error('Error refreshing CSV data:', error);
       return false;
     }
@@ -792,16 +809,17 @@ export class DataService {
    * Get CSV cache information
    */
   async getCSVCacheInfo(): Promise<{ exists: boolean; timestamp?: number; age?: number; isValid?: boolean }> {
-    if (!IndexedDBService.isSupported()) {
-      return {
-        exists: false,
-        timestamp: undefined,
-        age: undefined,
-        isValid: false
-      };
-    }
+    try {
+      // Check if IndexedDB is available and not disabled
+      if (!IndexedDBService.isSupported()) {
+        return { exists: false };
+      }
 
-    return await this.indexedDBService.getCSVCacheInfo();
+      return await this.indexedDBService.getCSVCacheInfo();
+    } catch (error) {
+      console.warn('Failed to get CSV cache info:', error);
+      return { exists: false };
+    }
   }
 
   /**
@@ -845,46 +863,34 @@ export class DataService {
    */
   private async saveToIndexedDB(csvData: any): Promise<void> {
     try {
-      const dataToSave = {
-        inventories: csvData.inventories || [],
-        inventoryParts: csvData.inventoryParts || [],
-        inventoryMinifigs: csvData.inventoryMinifigs || [],
-        inventorySets: csvData.inventorySets || [],
-        parts: csvData.parts || [],
-        colors: csvData.colors || [],
-        partCategories: csvData.partCategories || [],
-        partRelationships: csvData.partRelationships || [],
-        elements: csvData.elements || [],
-        minifigs: csvData.minifigs || [],
-        sets: csvData.sets || [],
-        themes: csvData.themes || [],
+      // Check if IndexedDB is available and not disabled
+      if (!IndexedDBService.isSupported() || this.indexedDBService.isDisabledForSession()) {
+        console.warn('IndexedDB not available for CSV caching');
+        return;
+      }
+
+      // Add timestamp and version to the data
+      const dataWithMetadata = {
+        ...csvData,
         timestamp: Date.now(),
         version: this.CSV_VERSION
       };
 
-      await this.indexedDBService.saveCSVDataCache(dataToSave, (progress) => {
+      await this.indexedDBService.saveCSVDataCache(dataWithMetadata, (progress) => {
+        // More descriptive caching messages
+        const phase = progress.phase || `Caching ${Math.round((progress.current / progress.total) * 100)}% complete...`;
         this.loadingService.updateProgress({
-          phase: progress.phase,
-          percentage: 50 + Math.round(progress.percentage * 0.4), // 50-90% range for saving
+          phase: phase,
+          percentage: Math.round(85 + (progress.percentage * 0.15)), // 85-100%
           current: progress.current,
           total: progress.total
         });
       });
 
-      // Verify the data was saved correctly
-      const verificationData = await this.indexedDBService.loadCSVDataCache();
-      if (verificationData) {
-        // Compare record counts to detect data loss
-        const originalTotal = this.getTotalRecords(csvData);
-        const verificationTotal = this.getTotalRecords(verificationData);
-
-        if (originalTotal !== verificationTotal) {
-          console.error('Data loss detected during save operation');
-          console.error(`Original total: ${originalTotal}, Verification total: ${verificationTotal}, Lost: ${originalTotal - verificationTotal} records`);
-        }
-      }
+      console.log('Successfully cached CSV data to IndexedDB');
     } catch (error) {
-      console.warn('Failed to cache CSV data to IndexedDB:', error);
+      console.error('Failed to cache CSV data to IndexedDB:', error);
+      // Don't throw - caching failure shouldn't break the app
     }
   }
 }

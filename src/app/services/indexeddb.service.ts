@@ -47,182 +47,258 @@ export class IndexedDBService {
     metadata: 'csv_metadata'
   };
 
+  // New singleton pattern fields
+  private initializationPromise: Promise<IDBDatabase> | null = null;
+  private initializationFailed = false;
+  private lastInitAttempt = 0;
+  private readonly MIN_RETRY_INTERVAL = 30000; // 30 seconds between retry attempts
+
+  // Persistent failure detection - more aggressive settings
+  private failureCount = 0;
+  private readonly MAX_FAILURES = 3; // Give IndexedDB more chances before disabling
+  private indexedDBDisabled = false;
+  private disabledReason = '';
+
   private db: IDBDatabase | null = null;
 
   constructor() {
-    this.initDB();
+    // Clear any stale session disable status from previous sessions on fresh load
+    // This gives IndexedDB a fresh start each time the page is loaded
+    if (!sessionStorage.getItem('indexeddb_keep_disabled')) {
+      sessionStorage.removeItem('indexeddb_disabled');
+      sessionStorage.removeItem('indexeddb_disabled_reason');
+    }
+
+    // Check if IndexedDB was previously disabled in this session
+    this.checkSessionDisableStatus();
   }
 
-  /**
-   * Ensure database is ready
-   */
+  private checkSessionDisableStatus(): void {
+    const sessionDisabled = sessionStorage.getItem('indexeddb_disabled');
+    if (sessionDisabled) {
+      this.indexedDBDisabled = true;
+      this.disabledReason = sessionStorage.getItem('indexeddb_disabled_reason') || 'Previous session failure';
+      console.warn(`IndexedDB disabled for session: ${this.disabledReason}`);
+    }
+  }
+
+  private throwIfDisabled(): void {
+    if (this.indexedDBDisabled) {
+      throw new Error(`IndexedDB disabled: ${this.disabledReason}`);
+    }
+  }
+
+  private disableIndexedDBForSession(reason: string): void {
+    this.indexedDBDisabled = true;
+    this.disabledReason = reason;
+    this.initializationPromise = null;
+    this.db = null;
+
+    // Store in session storage to persist across page reloads within the session
+    sessionStorage.setItem('indexeddb_disabled', 'true');
+    sessionStorage.setItem('indexeddb_disabled_reason', reason);
+
+    console.warn(`IndexedDB disabled for this session: ${reason}`);
+  }
+
   private async ensureDB(): Promise<IDBDatabase> {
-    if (!this.db) {
-      await this.initDB();
+    // Always check session disable status first
+    this.checkSessionDisableStatus();
+    this.throwIfDisabled();
+
+    // If we have a working database, return it
+    if (this.db) {
+      return this.db;
     }
-    if (!this.db) {
-      throw new Error('Failed to initialize IndexedDB');
+
+    // If initialization failed recently, don't retry immediately
+    const now = Date.now();
+    if (this.initializationFailed && (now - this.lastInitAttempt) < this.MIN_RETRY_INTERVAL) {
+      throw new Error('Database initialization failed recently, please wait before retrying');
     }
-    return this.db;
+
+    // If there's already an initialization in progress, return that promise
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    // Start new initialization directly - no availability test
+    this.initializationPromise = this.performDBInitialization();
+
+    try {
+      const db = await this.initializationPromise;
+      this.initializationFailed = false;
+      this.failureCount = 0; // Reset failure count on success
+      this.db = db;
+      return db;
+    } catch (error) {
+      this.initializationFailed = true;
+      this.lastInitAttempt = now;
+      this.initializationPromise = null; // Reset so we can try again later
+      this.failureCount++;
+
+      // Only disable after multiple failures, not just one
+      if (this.failureCount >= this.MAX_FAILURES) {
+        this.disableIndexedDBForSession(`Database initialization failed ${this.failureCount} times: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
+      throw error;
+    }
   }
 
-  /**
-   * Initialize IndexedDB with both user data and individual CSV object stores
-   */
-  private async initDB(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+  private async performDBInitialization(): Promise<IDBDatabase> {
+    return new Promise(async (resolve, reject) => {
+      // Use a single timeout for all database operations to avoid complexity
+      // 25 seconds should be sufficient for both existing and fresh databases
+      const timeoutDuration = 25000;
+      console.log(`Initializing database with ${timeoutDuration / 1000}s timeout`);
 
-      request.onerror = () => {
-        console.error('IndexedDB initialization failed:', request.error);
-        reject(request.error);
-      };
+      const timeoutId = setTimeout(() => {
+        this.initializationFailed = true;
+        this.initializationPromise = null;
+        reject(new Error(`Database initialization timed out after ${timeoutDuration / 1000} seconds`));
+      }, timeoutDuration);
 
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-
-        // Create user data store if it doesn't exist
-        if (!db.objectStoreNames.contains(this.USER_STORE_NAME)) {
-          const userStore = db.createObjectStore(this.USER_STORE_NAME, { keyPath: 'id' });
-          userStore.createIndex('timestamp', 'timestamp', { unique: false });
+      try {
+        // Clean up any existing connections first
+        if (this.db) {
+          this.db.close();
+          this.db = null;
         }
 
-        // Remove legacy CSV cache store if it exists
-        if (db.objectStoreNames.contains(this.CSV_STORE_NAME)) {
-          db.deleteObjectStore(this.CSV_STORE_NAME);
-        }
+        const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
-        // Create individual CSV object stores
-        this.createCSVObjectStores(db);
-      };
+        request.onerror = (event) => {
+          clearTimeout(timeoutId);
+          this.initializationFailed = true;
+          this.initializationPromise = null;
+          console.error('IndexedDB error:', request.error);
+          reject(new Error(`IndexedDB error: ${request.error?.message || 'Unknown error'}`));
+        };
+
+        request.onsuccess = (event) => {
+          clearTimeout(timeoutId);
+          const db = request.result as IDBDatabase;
+
+          // Add error handler for the database connection
+          db.onerror = (event) => {
+            console.error('Database error:', event);
+          };
+
+          resolve(db);
+        };
+
+        request.onupgradeneeded = (event) => {
+          try {
+            const db = request.result as IDBDatabase;
+            this.handleDBUpgrade(db, event.oldVersion, event.newVersion || this.DB_VERSION);
+          } catch (upgradeError) {
+            clearTimeout(timeoutId);
+            reject(new Error(`Database upgrade failed: ${upgradeError instanceof Error ? upgradeError.message : 'Unknown error'}`));
+          }
+        };
+
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.initializationFailed = true;
+        this.initializationPromise = null;
+        reject(error);
+      }
     });
   }
 
-  /**
-   * Create individual object stores for each CSV data type
-   */
-  private createCSVObjectStores(db: IDBDatabase): void {
-    // Inventories store - keyed by set_num + version
-    if (!db.objectStoreNames.contains(this.CSV_STORES.inventories)) {
-      const inventoriesStore = db.createObjectStore(this.CSV_STORES.inventories, { keyPath: 'id' });
-      inventoriesStore.createIndex('set_num', 'set_num', { unique: false });
-      inventoriesStore.createIndex('version', 'version', { unique: false });
-      inventoriesStore.createIndex('set_version', ['set_num', 'version'], { unique: true });
-    }
+  private handleDBUpgrade(db: IDBDatabase, oldVersion: number, newVersion: number): void {
+    console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
 
-    // Inventory Parts store - keyed by inventory_id + part_num + color_id + is_spare
-    if (!db.objectStoreNames.contains(this.CSV_STORES.inventoryParts)) {
-      const inventoryPartsStore = db.createObjectStore(this.CSV_STORES.inventoryParts);
-      inventoryPartsStore.createIndex('inventory_id', 'inventory_id', { unique: false });
-      inventoryPartsStore.createIndex('part_num', 'part_num', { unique: false });
-      inventoryPartsStore.createIndex('color_id', 'color_id', { unique: false });
-    }
+    try {
+      // Create user data store if it doesn't exist
+      if (!db.objectStoreNames.contains(this.USER_STORE_NAME)) {
+        db.createObjectStore(this.USER_STORE_NAME, { keyPath: 'id' });
+      }
 
-    // Inventory Minifigs store - keyed by inventory_id + fig_num
-    if (!db.objectStoreNames.contains(this.CSV_STORES.inventoryMinifigs)) {
-      const inventoryMinifigsStore = db.createObjectStore(this.CSV_STORES.inventoryMinifigs);
-      inventoryMinifigsStore.createIndex('inventory_id', 'inventory_id', { unique: false });
-      inventoryMinifigsStore.createIndex('fig_num', 'fig_num', { unique: false });
-    }
+      // For version 3+, create CSV object stores in a simpler way
+      if (newVersion >= 3) {
+        this.createCSVObjectStoresSimplified(db);
+      }
 
-    // Inventory Sets store - keyed by inventory_id + set_num
-    if (!db.objectStoreNames.contains(this.CSV_STORES.inventorySets)) {
-      const inventorySetsStore = db.createObjectStore(this.CSV_STORES.inventorySets);
-      inventorySetsStore.createIndex('inventory_id', 'inventory_id', { unique: false });
-      inventorySetsStore.createIndex('set_num', 'set_num', { unique: false });
-    }
-
-    // Parts store - keyed by part_num
-    if (!db.objectStoreNames.contains(this.CSV_STORES.parts)) {
-      const partsStore = db.createObjectStore(this.CSV_STORES.parts, { keyPath: 'part_num' });
-      partsStore.createIndex('name', 'name', { unique: false });
-      partsStore.createIndex('part_cat_id', 'part_cat_id', { unique: false });
-    }
-
-    // Colors store - keyed by id
-    if (!db.objectStoreNames.contains(this.CSV_STORES.colors)) {
-      const colorsStore = db.createObjectStore(this.CSV_STORES.colors, { keyPath: 'id' });
-      colorsStore.createIndex('name', 'name', { unique: false });
-    }
-
-    // Part Categories store - keyed by id
-    if (!db.objectStoreNames.contains(this.CSV_STORES.partCategories)) {
-      const partCategoriesStore = db.createObjectStore(this.CSV_STORES.partCategories, { keyPath: 'id' });
-      partCategoriesStore.createIndex('name', 'name', { unique: false });
-    }
-
-    // Part Relationships store - keyed by child_part_num + parent_part_num
-    if (!db.objectStoreNames.contains(this.CSV_STORES.partRelationships)) {
-      const partRelationshipsStore = db.createObjectStore(this.CSV_STORES.partRelationships);
-      partRelationshipsStore.createIndex('child_part_num', 'child_part_num', { unique: false });
-      partRelationshipsStore.createIndex('parent_part_num', 'parent_part_num', { unique: false });
-    }
-
-    // Elements store - keyed by element_id
-    if (!db.objectStoreNames.contains(this.CSV_STORES.elements)) {
-      const elementsStore = db.createObjectStore(this.CSV_STORES.elements, { keyPath: 'element_id' });
-      elementsStore.createIndex('part_num', 'part_num', { unique: false });
-      elementsStore.createIndex('color_id', 'color_id', { unique: false });
-      elementsStore.createIndex('part_color', ['part_num', 'color_id'], { unique: false });
-    }
-
-    // Minifigs store - keyed by fig_num
-    if (!db.objectStoreNames.contains(this.CSV_STORES.minifigs)) {
-      const minifigsStore = db.createObjectStore(this.CSV_STORES.minifigs, { keyPath: 'fig_num' });
-      minifigsStore.createIndex('name', 'name', { unique: false });
-    }
-
-    // Sets store - keyed by set_num
-    if (!db.objectStoreNames.contains(this.CSV_STORES.sets)) {
-      const setsStore = db.createObjectStore(this.CSV_STORES.sets, { keyPath: 'set_num' });
-      setsStore.createIndex('name', 'name', { unique: false });
-      setsStore.createIndex('year', 'year', { unique: false });
-      setsStore.createIndex('theme_id', 'theme_id', { unique: false });
-    }
-
-    // Themes store - keyed by id
-    if (!db.objectStoreNames.contains(this.CSV_STORES.themes)) {
-      const themesStore = db.createObjectStore(this.CSV_STORES.themes, { keyPath: 'id' });
-      themesStore.createIndex('name', 'name', { unique: false });
-      themesStore.createIndex('parent_id', 'parent_id', { unique: false });
-    }
-
-    // Metadata store for cache timestamps and versions
-    if (!db.objectStoreNames.contains(this.CSV_STORES.metadata)) {
-      db.createObjectStore(this.CSV_STORES.metadata, { keyPath: 'key' });
+      // Remove legacy CSV store if it exists
+      if (db.objectStoreNames.contains(this.CSV_STORE_NAME)) {
+        db.deleteObjectStore(this.CSV_STORE_NAME);
+      }
+    } catch (error) {
+      console.error('Error during database upgrade:', error);
+      throw error;
     }
   }
 
   /**
-   * Save app state to IndexedDB (user data only)
+   * Create CSV object stores with simplified approach to avoid upgrade hangs
+   */
+  private createCSVObjectStoresSimplified(db: IDBDatabase): void {
+    // Only create the essential stores without complex indexing initially
+    const essentialStores = [
+      { name: this.CSV_STORES.inventories, keyPath: 'id' },
+      { name: this.CSV_STORES.parts, keyPath: 'part_num' },
+      { name: this.CSV_STORES.colors, keyPath: 'id' },
+      { name: this.CSV_STORES.elements, keyPath: 'element_id' },
+      { name: this.CSV_STORES.minifigs, keyPath: 'fig_num' },
+      { name: this.CSV_STORES.sets, keyPath: 'set_num' },
+      { name: this.CSV_STORES.themes, keyPath: 'id' },
+      { name: this.CSV_STORES.partCategories, keyPath: 'id' },
+      { name: this.CSV_STORES.metadata, keyPath: 'key' }
+    ];
+
+    // Stores without natural key paths
+    const keylessStores = [
+      this.CSV_STORES.inventoryParts,
+      this.CSV_STORES.inventoryMinifigs,
+      this.CSV_STORES.inventorySets,
+      this.CSV_STORES.partRelationships
+    ];
+
+    // Create stores with key paths
+    essentialStores.forEach(({ name, keyPath }) => {
+      if (!db.objectStoreNames.contains(name)) {
+        db.createObjectStore(name, { keyPath });
+      }
+    });
+
+    // Create stores without key paths
+    keylessStores.forEach(name => {
+      if (!db.objectStoreNames.contains(name)) {
+        db.createObjectStore(name);
+      }
+    });
+  }
+
+  private async initDB(): Promise<void> {
+    // This method is now handled by ensureDB
+    await this.ensureDB();
+  }
+
+  /**
+   * Save app state to IndexedDB
    */
   async saveAppState(state: AppState): Promise<void> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
-      const transaction = db.transaction([this.USER_STORE_NAME], 'readwrite');
-      const store = transaction.objectStore(this.USER_STORE_NAME);
-
-      const stateRecord = {
-        id: this.STATE_KEY,
-        data: state,
-        timestamp: Date.now()
-      };
 
       return new Promise((resolve, reject) => {
-        const request = store.put(stateRecord);
+        const transaction = db.transaction([this.USER_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(this.USER_STORE_NAME);
 
-        request.onsuccess = () => {
-          resolve();
+        const stateData = {
+          id: this.STATE_KEY,
+          data: state,
+          timestamp: Date.now()
         };
-        request.onerror = () => {
-          console.error('Failed to save app state to IndexedDB:', request.error);
-          reject(request.error);
-        };
+
+        const request = store.put(stateData);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
       });
     } catch (error) {
       console.error('Error saving to IndexedDB:', error);
@@ -231,137 +307,164 @@ export class IndexedDBService {
   }
 
   /**
-   * Load app state from IndexedDB (user data only)
+   * Load app state from IndexedDB
    */
   async loadAppState(): Promise<AppState | null> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
-      const transaction = db.transaction([this.USER_STORE_NAME], 'readonly');
-      const store = transaction.objectStore(this.USER_STORE_NAME);
 
       return new Promise((resolve, reject) => {
+        const transaction = db.transaction([this.USER_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(this.USER_STORE_NAME);
         const request = store.get(this.STATE_KEY);
 
         request.onsuccess = () => {
           const result = request.result;
-          if (result && result.data) {
-            resolve(result.data as AppState);
-          } else {
-            resolve(null);
-          }
+          resolve(result ? result.data : null);
         };
 
-        request.onerror = () => {
-          console.error('Failed to load app state from IndexedDB:', request.error);
-          reject(request.error);
-        };
+        request.onerror = () => reject(request.error);
       });
     } catch (error) {
       console.error('Error loading from IndexedDB:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Load app state with timestamp from IndexedDB (user data only)
-   */
-  async loadAppStateWithTimestamp(): Promise<{ data: AppState; timestamp: number } | null> {
-    try {
-      const db = await this.ensureDB();
-      const transaction = db.transaction([this.USER_STORE_NAME], 'readonly');
-      const store = transaction.objectStore(this.USER_STORE_NAME);
-
-      return new Promise((resolve, reject) => {
-        const request = store.get(this.STATE_KEY);
-
-        request.onsuccess = () => {
-          const result = request.result;
-          if (result && result.data) {
-            resolve({
-              data: result.data as AppState,
-              timestamp: result.timestamp || 0
-            });
-          } else {
-            resolve(null);
-          }
-        };
-
-        request.onerror = () => {
-          console.error('Failed to load app state from IndexedDB:', request.error);
-          reject(request.error);
-        };
-      });
-    } catch (error) {
-      console.error('Error loading from IndexedDB:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Save CSV data cache to IndexedDB using individual object stores
-   */
-  async saveCSVDataCache(csvData: CSVDataCache, progressCallback?: (progress: { phase: string; percentage: number; current: number; total: number }) => void): Promise<void> {
-    try {
-      const db = await this.ensureDB();
-
-      // Save metadata first
-      progressCallback?.({ phase: 'Saving metadata', percentage: 0, current: 0, total: 12 });
-      await this.saveCSVMetadata(csvData.timestamp, csvData.version);
-
-      // Define save operations with their data
-      const saveOperations = [
-        { store: this.CSV_STORES.inventories, data: csvData.inventories, name: 'Inventories' },
-        { store: this.CSV_STORES.inventoryParts, data: csvData.inventoryParts, name: 'Inventory Parts', keyGen: this.generateInventoryPartKey },
-        { store: this.CSV_STORES.inventoryMinifigs, data: csvData.inventoryMinifigs, name: 'Inventory Minifigs', keyGen: this.generateInventoryMinifigKey },
-        { store: this.CSV_STORES.inventorySets, data: csvData.inventorySets, name: 'Inventory Sets', keyGen: this.generateInventorySetKey },
-        { store: this.CSV_STORES.parts, data: csvData.parts, name: 'Parts' },
-        { store: this.CSV_STORES.colors, data: csvData.colors, name: 'Colors' },
-        { store: this.CSV_STORES.partCategories, data: csvData.partCategories, name: 'Part Categories' },
-        { store: this.CSV_STORES.partRelationships, data: csvData.partRelationships, name: 'Part Relationships', keyGen: this.generatePartRelationshipKey },
-        { store: this.CSV_STORES.elements, data: csvData.elements, name: 'Elements' },
-        { store: this.CSV_STORES.minifigs, data: csvData.minifigs, name: 'Minifigs' },
-        { store: this.CSV_STORES.sets, data: csvData.sets, name: 'Sets' },
-        { store: this.CSV_STORES.themes, data: csvData.themes, name: 'Themes' }
-      ];
-
-      // Save each data type to its own object store with progress tracking
-      for (let i = 0; i < saveOperations.length; i++) {
-        const operation = saveOperations[i];
-        const percentage = Math.round(((i + 1) / saveOperations.length) * 100);
-
-        progressCallback?.({
-          phase: `Saving ${operation.name}`,
-          percentage,
-          current: i + 1,
-          total: saveOperations.length
-        });
-
-        await this.saveToObjectStore(operation.store, operation.data, operation.keyGen as ((item: any) => string) | undefined, (batchProgress) => {
-          // Sub-progress for large datasets
-          if (operation.data.length > 10000) {
-            const subPercentage = Math.round(((i + batchProgress) / saveOperations.length) * 100);
-            progressCallback?.({
-              phase: `Saving ${operation.name} (${Math.round(batchProgress * 100)}%)`,
-              percentage: subPercentage,
-              current: i + 1,
-              total: saveOperations.length
-            });
-          }
-        });
-      }
-
-      progressCallback?.({ phase: 'Completed!', percentage: 100, current: 12, total: 12 });
-
-    } catch (error) {
-      console.error('Error saving CSV data to individual object stores:', error);
       throw error;
     }
   }
 
   /**
-   * Load CSV data cache from IndexedDB individual object stores
+   * Load app state with timestamp from IndexedDB
    */
-  async loadCSVDataCache(): Promise<CSVDataCache | null> {
+  async loadAppStateWithTimestamp(): Promise<{ data: AppState; timestamp: number } | null> {
+    this.throwIfDisabled();
+
+    try {
+      const db = await this.ensureDB();
+
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([this.USER_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(this.USER_STORE_NAME);
+        const request = store.get(this.STATE_KEY);
+
+        request.onsuccess = () => {
+          const result = request.result;
+          if (result && result.data && result.timestamp) {
+            resolve({ data: result.data, timestamp: result.timestamp });
+          } else {
+            resolve(null);
+          }
+        };
+
+        request.onerror = () => reject(request.error);
+      });
+    } catch (error) {
+      console.error('Error loading from IndexedDB:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save CSV data cache to individual object stores
+   */
+  async saveCSVDataCache(csvData: CSVDataCache, progressCallback?: (progress: { phase: string; percentage: number; current: number; total: number }) => void): Promise<void> {
+    this.throwIfDisabled();
+
+    try {
+      const db = await this.ensureDB();
+
+      // Set population flag to prevent concurrent access to partially populated database
+      console.log('🏗️ Setting population flag...');
+      await this.setPopulationFlag();
+
+      const storeDataSteps = [
+        { name: 'inventories', data: csvData.inventories, key: null },
+        { name: 'inventoryParts', data: csvData.inventoryParts, key: this.generateInventoryPartKey },
+        { name: 'inventoryMinifigs', data: csvData.inventoryMinifigs, key: this.generateInventoryMinifigKey },
+        { name: 'inventorySets', data: csvData.inventorySets, key: this.generateInventorySetKey },
+        { name: 'parts', data: csvData.parts, key: null },
+        { name: 'colors', data: csvData.colors, key: null },
+        { name: 'partCategories', data: csvData.partCategories, key: null },
+        { name: 'partRelationships', data: csvData.partRelationships, key: this.generatePartRelationshipKey },
+        { name: 'elements', data: csvData.elements, key: null },
+        { name: 'minifigs', data: csvData.minifigs, key: null },
+        { name: 'sets', data: csvData.sets, key: null },
+        { name: 'themes', data: csvData.themes, key: null }
+      ];
+
+      let totalRecords = 0;
+      storeDataSteps.forEach(step => {
+        totalRecords += Array.isArray(step.data) ? step.data.length : 0;
+      });
+
+      let processedRecords = 0;
+
+      for (let i = 0; i < storeDataSteps.length; i++) {
+        const step = storeDataSteps[i];
+        const storeName = this.CSV_STORES[step.name as keyof typeof this.CSV_STORES];
+
+        if (!Array.isArray(step.data) || step.data.length === 0) {
+          console.warn(`Skipping ${step.name} - no data or not an array`);
+          continue;
+        }
+
+        try {
+          await this.saveToObjectStore(
+            storeName,
+            step.data as any[],
+            step.key as ((item: any) => string) | undefined,
+            (progress: number) => {
+              const recordsInThisStep = step.data.length;
+              const stepRecordsProcessed = Math.round(recordsInThisStep * progress);
+              const totalProcessed = processedRecords + stepRecordsProcessed;
+              const overallProgress = totalRecords > 0 ? (totalProcessed / totalRecords) : 0;
+              const percentageText = Math.round(overallProgress * 100);
+
+              progressCallback?.({
+                phase: `Saving ${step.name}... (${percentageText}%)`,
+                percentage: overallProgress,
+                current: totalProcessed,
+                total: totalRecords
+              });
+            }
+          );
+
+          processedRecords += step.data.length;
+        } catch (error) {
+          console.error(`Error saving ${step.name} to IndexedDB:`, error);
+          // Clear population flag before throwing
+          await this.clearPopulationFlag();
+          throw error;
+        }
+      }
+
+      // Save metadata with timestamp and version
+      await this.saveCSVMetadata(csvData.timestamp, csvData.version);
+
+      // Clear population flag to indicate successful completion
+      console.log('✅ Clearing population flag - cache population complete');
+      await this.clearPopulationFlag();
+
+      console.log('✅ Successfully saved all CSV data to IndexedDB');
+
+    } catch (error) {
+      console.error('Error saving CSV data to individual object stores:', error);
+      // Ensure we clear the population flag even if something fails
+      try {
+        await this.clearPopulationFlag();
+      } catch (clearError) {
+        console.error('Failed to clear population flag after error:', clearError);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Load CSV data cache from individual object stores
+   */
+  async loadCSVDataCache(progressCallback?: (phase: string, percentage: number) => void): Promise<CSVDataCache | null> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
 
@@ -371,48 +474,51 @@ export class IndexedDBService {
         return null;
       }
 
-      // Load all data types from their individual object stores
-      const [
-        inventories,
-        inventoryParts,
-        inventoryMinifigs,
-        inventorySets,
-        parts,
-        colors,
-        partCategories,
-        partRelationships,
-        elements,
-        minifigs,
-        sets,
-        themes
-      ] = await Promise.all([
-        this.loadFromObjectStore<Inventory>(this.CSV_STORES.inventories),
-        this.loadFromObjectStore<InventoryPart>(this.CSV_STORES.inventoryParts),
-        this.loadFromObjectStore<InventoryMinifig>(this.CSV_STORES.inventoryMinifigs),
-        this.loadFromObjectStore<InventorySet>(this.CSV_STORES.inventorySets),
-        this.loadFromObjectStore<Part>(this.CSV_STORES.parts),
-        this.loadFromObjectStore<Color>(this.CSV_STORES.colors),
-        this.loadFromObjectStore<PartCategory>(this.CSV_STORES.partCategories),
-        this.loadFromObjectStore<PartRelationship>(this.CSV_STORES.partRelationships),
-        this.loadFromObjectStore<Element>(this.CSV_STORES.elements),
-        this.loadFromObjectStore<Minifig>(this.CSV_STORES.minifigs),
-        this.loadFromObjectStore<PartialSet>(this.CSV_STORES.sets),
-        this.loadFromObjectStore<Theme>(this.CSV_STORES.themes)
-      ]);
+      // Load data types sequentially with progress reporting
+      const storeLoadSteps = [
+        { name: 'inventories', store: this.CSV_STORES.inventories },
+        { name: 'parts', store: this.CSV_STORES.parts },
+        { name: 'colors', store: this.CSV_STORES.colors },
+        { name: 'inventoryParts', store: this.CSV_STORES.inventoryParts },
+        { name: 'inventoryMinifigs', store: this.CSV_STORES.inventoryMinifigs },
+        { name: 'inventorySets', store: this.CSV_STORES.inventorySets },
+        { name: 'partCategories', store: this.CSV_STORES.partCategories },
+        { name: 'partRelationships', store: this.CSV_STORES.partRelationships },
+        { name: 'elements', store: this.CSV_STORES.elements },
+        { name: 'minifigs', store: this.CSV_STORES.minifigs },
+        { name: 'sets', store: this.CSV_STORES.sets },
+        { name: 'themes', store: this.CSV_STORES.themes }
+      ];
+
+      const results: any = {};
+
+      for (let i = 0; i < storeLoadSteps.length; i++) {
+        const step = storeLoadSteps[i];
+        const progress = Math.round(30 + (i / storeLoadSteps.length) * 50); // 30-80% range
+
+        progressCallback?.(`Loading ${step.name} data from cache...`, progress);
+        console.log(`Loading ${step.name} from cache...`);
+        results[step.name] = await this.loadFromObjectStore(step.store);
+
+        // Allow other operations to run
+        if (i < storeLoadSteps.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1));
+        }
+      }
 
       const csvData: CSVDataCache = {
-        inventories,
-        inventoryParts,
-        inventoryMinifigs,
-        inventorySets,
-        parts,
-        colors,
-        partCategories,
-        partRelationships,
-        elements,
-        minifigs,
-        sets,
-        themes,
+        inventories: results.inventories,
+        inventoryParts: results.inventoryParts,
+        inventoryMinifigs: results.inventoryMinifigs,
+        inventorySets: results.inventorySets,
+        parts: results.parts,
+        colors: results.colors,
+        partCategories: results.partCategories,
+        partRelationships: results.partRelationships,
+        elements: results.elements,
+        minifigs: results.minifigs,
+        sets: results.sets,
+        themes: results.themes,
         timestamp: metadata.timestamp,
         version: metadata.version
       };
@@ -421,7 +527,7 @@ export class IndexedDBService {
 
     } catch (error) {
       console.error('Error loading CSV data from individual object stores:', error);
-      return null;
+      throw error;
     }
   }
 
@@ -475,7 +581,27 @@ export class IndexedDBService {
 
         batch.forEach((item, index) => {
           try {
+            // Validate item before processing
+            if (!item || typeof item !== 'object') {
+              errors++;
+              if (errors <= 10) { // Limit logging to prevent console crashes
+                console.error(`❌ Invalid item at ${start + index} in ${storeName}: item is not an object`);
+              }
+              return;
+            }
+
             const key = keyGenerator ? keyGenerator(item) : undefined;
+
+            // Validate generated key
+            if (keyGenerator && (key === null || key === undefined || key === '')) {
+              errors++;
+              if (errors <= 10) { // Limit logging to prevent console crashes
+                console.error(`❌ Invalid key generated for item ${start + index} in ${storeName}:`,
+                  { item: JSON.stringify(item).substring(0, 200), key });
+              }
+              return;
+            }
+
             // Use put() instead of add() to allow overwriting existing keys
             const request = key ? batchStore.put(item, key) : batchStore.put(item);
 
@@ -485,12 +611,21 @@ export class IndexedDBService {
 
             request.onerror = () => {
               errors++;
-              console.error(`❌ Failed to save item ${start + index} in ${storeName}:`, request.error);
+              if (errors <= 10) { // Limit logging to prevent console crashes
+                console.error(`❌ Failed to save item ${start + index} in ${storeName}:`, request.error);
+              } else if (errors === 11) {
+                console.warn(`⚠️ Too many errors in ${storeName}, suppressing further error logs...`);
+              }
               // Don't reject here, let the batch continue
             };
           } catch (error) {
             errors++;
-            console.error(`❌ Exception saving item ${start + index} in ${storeName}:`, error);
+            if (errors <= 10) { // Limit logging to prevent console crashes
+              console.error(`❌ Exception saving item ${start + index} in ${storeName}:`, error);
+              console.error(`Item data:`, JSON.stringify(item).substring(0, 200));
+            } else if (errors === 11) {
+              console.warn(`⚠️ Too many exceptions in ${storeName}, suppressing further exception logs...`);
+            }
           }
         });
 
@@ -514,7 +649,11 @@ export class IndexedDBService {
 
     // Verify we saved all records
     if (totalSaved !== data.length) {
-      console.warn(`⚠️ Data loss in ${storeName}! Expected: ${data.length}, Saved: ${totalSaved}, Lost: ${data.length - totalSaved}`);
+      const lost = data.length - totalSaved;
+      console.warn(`⚠️ Data loss in ${storeName}! Expected: ${data.length}, Saved: ${totalSaved}, Lost: ${lost}`);
+      console.warn(`This usually indicates invalid data or key generation issues. Check the data quality for ${storeName}.`);
+    } else {
+      console.log(`✅ Successfully saved ${totalSaved} records to ${storeName}`);
     }
   }
 
@@ -570,7 +709,7 @@ export class IndexedDBService {
     return new Promise<{ timestamp: number; version: string } | null>((resolve, reject) => {
       const timeout = setTimeout(() => {
         resolve(null);
-      }, 2000); // Reduced timeout to 2 seconds
+      }, 5000); // Increased from 2 to 5 seconds
 
       try {
         const transaction = db.transaction([this.CSV_STORES.metadata], 'readonly');
@@ -613,19 +752,29 @@ export class IndexedDBService {
 
   // Key generation functions for composite keys
   private generateInventoryPartKey = (item: InventoryPart): string => {
-    return `${item.inventory_id}_${item.part_num}_${item.color_id}_${item.is_spare ? 'spare' : 'normal'}`;
+    const inventoryId = item?.inventory_id?.toString() || 'unknown';
+    const partNum = item?.part_num || 'unknown';
+    const colorId = item?.color_id?.toString() || 'unknown';
+    const spareFlag = item?.is_spare ? 'spare' : 'normal';
+    return `${inventoryId}_${partNum}_${colorId}_${spareFlag}`;
   };
 
   private generateInventoryMinifigKey = (item: InventoryMinifig): string => {
-    return `${item.inventory_id}_${item.fig_num}`;
+    const inventoryId = item?.inventory_id?.toString() || 'unknown';
+    const figNum = item?.fig_num || 'unknown';
+    return `${inventoryId}_${figNum}`;
   };
 
   private generateInventorySetKey = (item: InventorySet): string => {
-    return `${item.inventory_id}_${item.set_num}`;
+    const inventoryId = item?.inventory_id?.toString() || 'unknown';
+    const setNum = item?.set_num || 'unknown';
+    return `${inventoryId}_${setNum}`;
   };
 
   private generatePartRelationshipKey = (item: PartRelationship): string => {
-    return `${item.child_part_num}_${item.parent_part_num}`;
+    const childPart = item?.child_part_num || 'unknown';
+    const parentPart = item?.parent_part_num || 'unknown';
+    return `${childPart}_${parentPart}`;
   };
 
   /**
@@ -633,31 +782,123 @@ export class IndexedDBService {
    */
   async isCSVCacheValid(): Promise<boolean> {
     try {
+      this.throwIfDisabled();
+
+      // Wait for database to be ready before validating cache
+      await this.ensureDB();
+
+      return await this.performCacheValidation();
+    } catch (error) {
+      console.error('Cache validation error:', error);
+      return false;
+    }
+  }
+
+  private async performCacheValidation(): Promise<boolean> {
+    try {
+      // Remove timeout - let cache validation complete naturally
+      // If database is initializing, this will wait for it to complete
       const db = await this.ensureDB();
 
-      // Check if metadata object store exists
-      if (!db.objectStoreNames.contains('csv_metadata')) {
+      console.log('🔍 Starting cache validation...');
+
+      // Check if population is currently in progress
+      const populationInProgress = await this.isPopulationInProgress();
+      if (populationInProgress) {
+        console.log('❌ Cache population in progress - treating as invalid');
         return false;
       }
 
-      // Check if parts object store exists (main indicator of data)
-      if (!db.objectStoreNames.contains('csv_parts')) {
+      // Check if we have the metadata store
+      if (!db.objectStoreNames.contains(this.CSV_STORES.metadata)) {
+        console.log(`❌ ${this.CSV_STORES.metadata} store not found`);
         return false;
       }
 
-      // Check metadata
+      // Load metadata
       const metadata = await this.loadCSVMetadata();
       if (!metadata) {
+        console.log('❌ No CSV metadata found');
         return false;
       }
 
-      const cacheAge = Date.now() - metadata.timestamp;
-      const maxAge = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
-      const isValid = cacheAge < maxAge;
+      // Check age
+      const ageMs = Date.now() - metadata.timestamp;
+      const ageHours = ageMs / (1000 * 60 * 60);
 
-      return isValid;
+      console.log(`📅 Cache metadata: timestamp=${new Date(metadata.timestamp).toISOString()}, age=${ageHours.toFixed(2)}h, version=${metadata.version}`);
+
+      if (ageHours > this.CSV_CACHE_EXPIRY_HOURS) {
+        console.log(`❌ Cache expired: ${ageHours.toFixed(1)} hours old (max: ${this.CSV_CACHE_EXPIRY_HOURS})`);
+        return false;
+      }
+
+      console.log('⏱️ Checking data completeness...');
+
+      // Check that all expected stores exist and have reasonable amounts of data
+      const validationChecks = [
+        { store: this.CSV_STORES.parts, minCount: 50000 },
+        { store: this.CSV_STORES.colors, minCount: 200 },
+        { store: this.CSV_STORES.inventories, minCount: 30000 },
+        { store: this.CSV_STORES.inventoryParts, minCount: 100000 }
+      ];
+
+      for (const check of validationChecks) {
+        const hasValidData = await this.quickStoreCountCheck(check.store, check.minCount);
+        if (!hasValidData) {
+          console.log(`❌ ${check.store} validation failed (expected min: ${check.minCount})`);
+          return false;
+        }
+      }
+
+      console.log('✅ Cache validation passed');
+      return true;
     } catch (error) {
-      console.error('Error checking CSV cache validity:', error);
+      console.error('❌ Cache validation failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Quick check to see if a store has at least the minimum expected number of records
+   */
+  private async quickStoreCountCheck(storeName: string, minExpected: number): Promise<boolean> {
+    try {
+      const db = await this.ensureDB();
+
+      return new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => {
+          resolve(false); // Timeout = assume no data
+        }, 2000); // Very short timeout for count operations
+
+        try {
+          const transaction = db.transaction([storeName], 'readonly');
+          const store = transaction.objectStore(storeName);
+          const request = store.count();
+
+          request.onsuccess = () => {
+            clearTimeout(timeout);
+            const count = request.result;
+            const isValid = count >= minExpected;
+            console.log(`📊 Store ${storeName}: count=${count}, expected>=${minExpected}, valid=${isValid}`);
+            resolve(isValid);
+          };
+
+          request.onerror = () => {
+            clearTimeout(timeout);
+            resolve(false);
+          };
+
+          transaction.onerror = () => {
+            clearTimeout(timeout);
+            resolve(false);
+          };
+        } catch (error) {
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      });
+    } catch (error) {
       return false;
     }
   }
@@ -666,6 +907,8 @@ export class IndexedDBService {
    * Clear CSV data cache only (all individual object stores)
    */
   async clearCSVCache(): Promise<void> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
 
@@ -684,6 +927,12 @@ export class IndexedDBService {
 
       await Promise.all(clearPromises);
 
+      // Clear population flag in case it was set
+      await this.clearPopulationFlag();
+
+      // Reset session state after clearing to allow fresh caching
+      this.resetSessionStateAfterClear();
+
     } catch (error) {
       console.error('Error clearing CSV data cache from IndexedDB:', error);
       throw error;
@@ -694,6 +943,8 @@ export class IndexedDBService {
    * Clear user data only (preserves CSV cache)
    */
   async clearUserData(): Promise<void> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
       const transaction = db.transaction([this.USER_STORE_NAME], 'readwrite');
@@ -718,19 +969,53 @@ export class IndexedDBService {
    * Clear all data from IndexedDB (both user data and CSV cache)
    */
   async clearAllData(): Promise<void> {
+    console.log('Clearing all data by deleting and recreating database...');
+
     try {
-      await this.clearUserData();
-      await this.clearCSVCache();
+      // First, completely close all connections and reset state
+      this.forceCleanup();
+
+      // Add a small delay to ensure connections are fully closed
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Delete the entire database
+      await this.deleteDatabase();
+
+      // Reset session state after successful clearing
+      this.resetSessionStateAfterClear();
+
+      console.log('✅ All IndexedDB data cleared successfully');
     } catch (error) {
       console.error('Error clearing all data from IndexedDB:', error);
-      throw error;
+
+      // If deletion fails, still reset our internal state
+      this.forceCleanup();
+      this.resetSessionStateAfterClear();
+
+      // Don't throw the error, as this might be due to browser limitations
+      // The data should still be cleared on next initialization
+      console.log('⚠️ Database deletion may have failed, but internal state reset');
     }
+  }
+
+  /**
+   * Reset session state after clearing data (less aggressive than full reset)
+   */
+  private resetSessionStateAfterClear(): void {
+    // Reset failure counts and states to allow fresh attempts
+    this.failureCount = 0;
+    this.initializationFailed = false;
+    this.initializationPromise = null;
+
+    // Don't clear the session storage flags yet - let the next successful operation do that
+    console.log('Reset IndexedDB state after data clearing - ready for fresh initialization');
   }
 
   /**
    * Check if IndexedDB is supported
    */
   static isSupported(): boolean {
+    // Only check browser support, not session disable status
     return 'indexedDB' in window && indexedDB !== null;
   }
 
@@ -756,6 +1041,8 @@ export class IndexedDBService {
    * Get CSV cache information
    */
   async getCSVCacheInfo(): Promise<{ exists: boolean; timestamp?: number; age?: number; isValid?: boolean }> {
+    this.throwIfDisabled();
+
     try {
       const metadata = await this.loadCSVMetadata();
       if (!metadata) {
@@ -764,14 +1051,14 @@ export class IndexedDBService {
 
       const now = Date.now();
       const age = now - metadata.timestamp;
-      const maxAge = this.CSV_CACHE_EXPIRY_HOURS * 60 * 60 * 1000;
-      const isValid = age < maxAge;
+      const ageInHours = age / (1000 * 60 * 60);
+      const isValid = ageInHours < this.CSV_CACHE_EXPIRY_HOURS;
 
       return {
         exists: true,
         timestamp: metadata.timestamp,
-        age,
-        isValid
+        age: age,
+        isValid: isValid
       };
     } catch (error) {
       console.error('Error getting CSV cache info:', error);
@@ -783,6 +1070,8 @@ export class IndexedDBService {
    * Get inventory parts by inventory ID (efficient indexed lookup)
    */
   async getInventoryPartsByInventoryId(inventoryId: number): Promise<InventoryPart[]> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
       const transaction = db.transaction([this.CSV_STORES.inventoryParts], 'readonly');
@@ -810,6 +1099,8 @@ export class IndexedDBService {
    * Get inventory minifigs by inventory ID (efficient indexed lookup)
    */
   async getInventoryMinifigsByInventoryId(inventoryId: number): Promise<InventoryMinifig[]> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
       const transaction = db.transaction([this.CSV_STORES.inventoryMinifigs], 'readonly');
@@ -837,6 +1128,8 @@ export class IndexedDBService {
    * Get inventory by set number and version (efficient indexed lookup)
    */
   async getInventoryBySetNumAndVersion(setNum: string, version: number): Promise<Inventory | null> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
       const transaction = db.transaction([this.CSV_STORES.inventories], 'readonly');
@@ -864,6 +1157,8 @@ export class IndexedDBService {
    * Get part by part number (efficient keyed lookup)
    */
   async getPartByPartNum(partNum: string): Promise<Part | null> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
       const transaction = db.transaction([this.CSV_STORES.parts], 'readonly');
@@ -890,6 +1185,8 @@ export class IndexedDBService {
    * Get color by ID (efficient keyed lookup)
    */
   async getColorById(colorId: number): Promise<Color | null> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
       const transaction = db.transaction([this.CSV_STORES.colors], 'readonly');
@@ -916,6 +1213,8 @@ export class IndexedDBService {
    * Check if individual object stores have data (fast check)
    */
   async hasCSVObjectStoreData(): Promise<boolean> {
+    this.throwIfDisabled();
+
     try {
       const db = await this.ensureDB();
 
@@ -958,6 +1257,196 @@ export class IndexedDBService {
       });
     } catch (error) {
       console.error('Error checking CSV object store data:', error);
+      return false;
+    }
+  }
+
+  isDisabledForSession(): boolean {
+    return this.indexedDBDisabled;
+  }
+
+  getDisabledReason(): string {
+    return this.disabledReason;
+  }
+
+  /**
+   * Reset IndexedDB session state (for manual reset by user)
+   */
+  resetSessionState(): void {
+    sessionStorage.removeItem('indexeddb_disabled');
+    sessionStorage.removeItem('indexeddb_disabled_reason');
+    this.indexedDBDisabled = false;
+    this.disabledReason = '';
+    this.failureCount = 0;
+    this.initializationFailed = false;
+    this.initializationPromise = null;
+
+    // Close any existing database connection
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+
+    console.log('IndexedDB session state reset');
+  }
+
+  /**
+   * Delete the entire IndexedDB database (nuclear option for corruption)
+   */
+  async deleteDatabase(): Promise<void> {
+    try {
+      // Close any existing connection first
+      if (this.db) {
+        this.db.close();
+        this.db = null;
+      }
+
+      // Reset internal state
+      this.initializationPromise = null;
+      this.initializationFailed = false;
+
+      return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Database deletion timed out after 10 seconds'));
+        }, 10000);
+
+        const deleteRequest = indexedDB.deleteDatabase(this.DB_NAME);
+
+        deleteRequest.onsuccess = () => {
+          clearTimeout(timeoutId);
+          console.log('IndexedDB database deleted successfully');
+          resolve();
+        };
+
+        deleteRequest.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(new Error(`Failed to delete database: ${deleteRequest.error?.message || 'Unknown error'}`));
+        };
+
+        deleteRequest.onblocked = () => {
+          console.warn('Database deletion blocked - other connections may be open');
+          // Don't reject here, wait for success or error
+        };
+      });
+    } catch (error) {
+      console.error('Error deleting IndexedDB database:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Force cleanup of all database connections and reset state
+   */
+  forceCleanup(): void {
+    if (this.db) {
+      try {
+        this.db.close();
+      } catch (error) {
+        console.warn('Error closing database connection:', error);
+      }
+      this.db = null;
+    }
+
+    this.initializationPromise = null;
+    this.initializationFailed = false;
+    this.lastInitAttempt = 0;
+  }
+
+  /**
+   * Set population flag to indicate IndexedDB is being populated
+   */
+  private async setPopulationFlag(): Promise<void> {
+    try {
+      const db = await this.ensureDB();
+      const transaction = db.transaction([this.CSV_STORES.metadata], 'readwrite');
+      const store = transaction.objectStore(this.CSV_STORES.metadata);
+
+      const flagData = {
+        key: 'population_in_progress',
+        timestamp: Date.now(),
+        inProgress: true
+      };
+
+      return new Promise<void>((resolve, reject) => {
+        const request = store.put(flagData);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    } catch (error) {
+      console.error('Error setting population flag:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear population flag when caching completes
+   */
+  private async clearPopulationFlag(): Promise<void> {
+    try {
+      const db = await this.ensureDB();
+      const transaction = db.transaction([this.CSV_STORES.metadata], 'readwrite');
+      const store = transaction.objectStore(this.CSV_STORES.metadata);
+
+      return new Promise<void>((resolve, reject) => {
+        const request = store.delete('population_in_progress');
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    } catch (error) {
+      console.error('Error clearing population flag:', error);
+      // Don't throw - clearing flag failure shouldn't break the app
+    }
+  }
+
+  /**
+   * Check if population is currently in progress
+   */
+  private async isPopulationInProgress(): Promise<boolean> {
+    try {
+      const db = await this.ensureDB();
+
+      // Check if metadata store exists
+      if (!db.objectStoreNames.contains(this.CSV_STORES.metadata)) {
+        return false;
+      }
+
+      const transaction = db.transaction([this.CSV_STORES.metadata], 'readonly');
+      const store = transaction.objectStore(this.CSV_STORES.metadata);
+
+      return new Promise<boolean>((resolve) => {
+        const request = store.get('population_in_progress');
+
+        request.onsuccess = () => {
+          const result = request.result;
+          if (result && result.inProgress) {
+            // Check if the flag is stale (older than 30 minutes)
+            const flagAge = Date.now() - result.timestamp;
+            const thirtyMinutes = 30 * 60 * 1000;
+
+            if (flagAge > thirtyMinutes) {
+              console.warn('🧹 Found stale population flag (older than 30 minutes), clearing it...');
+              console.warn(`Flag was set ${Math.round(flagAge / (60 * 1000))} minutes ago`);
+              // Don't wait for the cleanup, just return false
+              this.clearPopulationFlag();
+              resolve(false);
+            } else {
+              const minutesAgo = Math.round(flagAge / (60 * 1000));
+              console.log(`⚠️ Population in progress detected (started ${minutesAgo} minute(s) ago)`);
+              resolve(true);
+            }
+          } else {
+            console.log(`✅ No population flag found or flag is cleared`);
+            resolve(false);
+          }
+        };
+
+        request.onerror = () => {
+          // If we can't read the flag, assume not in progress
+          resolve(false);
+        };
+      });
+    } catch (error) {
+      console.error('Error checking population flag:', error);
       return false;
     }
   }

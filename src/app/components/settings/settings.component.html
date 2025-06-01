@@ -129,6 +129,12 @@
                 class="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
                 Import Data
               </button>
+              <p class="text-xs text-orange-600 mt-2 flex items-start">
+                <svg class="w-4 h-4 mr-1 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                </svg>
+                Warning: Importing will overwrite all existing inventory data in your browser.
+              </p>
             </div>
           </div>
 
@@ -270,18 +276,52 @@
               Or permanently delete ALL data including the CSV cache (will force complete reload on next visit):
             </p>
             <button
-              (click)="clearAllDataIncludingCache()"
-              class="w-full px-4 py-2 bg-red-800 text-white rounded-md hover:bg-red-900">
-              Clear All Data Including Cache
+              (click)="clearAllDataAndCache()"
+              [disabled]="isRefreshingCSV"
+              class="w-full px-4 py-2 bg-red-800 text-white rounded-md hover:bg-red-900 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center">
+              <div *ngIf="isRefreshingCSV" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              {{ isRefreshingCSV ? 'Clearing All Data...' : 'Clear All Data Including Cache' }}
             </button>
           </div>
         </div>
       </div>
 
       <!-- Storage Information -->
-      <div class="mb-8" *ngIf="isUsingIndexedDB && storageInfo">
+      <div class="mb-8" *ngIf="storageInfo">
         <h2 class="text-xl font-semibold text-gray-700 mb-4">Storage Information</h2>
         <div class="bg-gray-50 p-4 rounded-lg">
+          <!-- Storage Status Alert -->
+          <div *ngIf="isIndexedDBDisabled" class="mb-4 p-3 bg-yellow-100 border border-yellow-400 rounded-lg">
+            <div class="flex items-center">
+              <svg class="w-5 h-5 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.732 15.5c-.77.833.192 2.5 1.732 2.5z"></path>
+              </svg>
+              <span class="font-medium text-yellow-800">IndexedDB Disabled</span>
+            </div>
+            <p class="text-yellow-700 text-sm mt-1">
+              IndexedDB has been disabled due to: {{ indexedDBDisabledReason }}.
+              Using localStorage fallback. Some features may be limited.
+            </p>
+            <div class="flex items-center justify-between">
+              <span class="font-medium">Status:</span>
+              <span class="text-orange-600">{{ indexedDBDisabledReason }}</span>
+            </div>
+            <div class="mt-3 flex gap-2">
+              <button
+                (click)="resetIndexedDB()"
+                [disabled]="isResettingIndexedDB"
+                class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                {{ isResettingIndexedDB ? 'Resetting...' : 'Reset Session' }}
+              </button>
+              <button
+                (click)="deleteEntireDatabase()"
+                [disabled]="isResettingIndexedDB"
+                class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">
+                {{ isResettingIndexedDB ? 'Processing...' : 'Delete Database' }}
+              </button>
+            </div>
+          </div>
+
           <div class="mb-4">
             <div class="flex justify-between items-center mb-2">
               <span class="font-medium text-gray-700">Storage Usage</span>
@@ -301,16 +341,26 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div class="bg-white p-3 rounded border">
               <div class="font-medium text-gray-700 mb-1">Storage Type</div>
               <div class="text-gray-600">{{ storageInfo.type }}</div>
             </div>
             <div class="bg-white p-3 rounded border">
+              <div class="font-medium text-gray-700 mb-1">Status</div>
+              <div class="text-gray-600 flex items-center">
+                <span class="inline-block w-2 h-2 rounded-full mr-2"
+                      [class.bg-green-500]="storageInfo.status === 'Active'"
+                      [class.bg-yellow-500]="storageInfo.status === 'Fallback'"
+                      [class.bg-red-500]="storageInfo.status.includes('Disabled')"></span>
+                {{ storageInfo.status }}
+              </div>
+            </div>
+            <div class="bg-white p-3 rounded border">
               <div class="font-medium text-gray-700 mb-1">Data Components</div>
               <div class="text-gray-600">
                 <div>• Your inventory data</div>
-                <div>• Building Block CSV data cache</div>
+                <div>• CSV data cache</div>
                 <div>• Application settings</div>
               </div>
             </div>
@@ -318,6 +368,7 @@
 
           <p class="text-xs text-gray-500 mt-3">
             Storage is managed automatically. CSV cache helps reduce loading times and data usage.
+            <span *ngIf="isIndexedDBDisabled"> Currently using localStorage fallback due to IndexedDB issues.</span>
           </p>
         </div>
       </div>

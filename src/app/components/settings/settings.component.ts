@@ -5,6 +5,7 @@ import { StorageService } from '../../services/storage.service';
 import { ExportService } from '../../services/export.service';
 import { DataService } from '../../services/data.service';
 import { GlobalSettings } from '../../models/models';
+import { IndexedDBService } from '../../services/indexeddb.service';
 
 @Component({
   selector: 'app-settings',
@@ -20,11 +21,14 @@ export class SettingsComponent implements OnInit {
     imagePreviewSize: '1x',
     includeSparePartsInProgress: true
   };
-  storageInfo: { used: number; quota: number; type: string } | null = null;
+  storageInfo: { used: number; quota: number; type: string; status: string } | null = null;
   isUsingIndexedDB = false;
+  isIndexedDBDisabled = false;
+  indexedDBDisabledReason = '';
   csvCacheInfo: { exists: boolean; timestamp?: number; age?: number; isValid?: boolean } | null = null;
   isRefreshingCSV = false;
   isCheckingIntegrity = false;
+  isResettingIndexedDB = false;
   dataIntegrityResults: {
     comparisons: Array<{
       dataType: string;
@@ -40,7 +44,8 @@ export class SettingsComponent implements OnInit {
   constructor(
     private storageService: StorageService,
     private exportService: ExportService,
-    private dataService: DataService
+    private dataService: DataService,
+    private indexedDBService: IndexedDBService
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -59,6 +64,15 @@ export class SettingsComponent implements OnInit {
   async loadStorageInfo(): Promise<void> {
     try {
       this.storageInfo = await this.storageService.getStorageInfo();
+      this.isUsingIndexedDB = this.storageService.isUsingIndexedDB();
+
+      // Check if IndexedDB is disabled
+      this.isIndexedDBDisabled = !this.isUsingIndexedDB && 'indexedDB' in window;
+      if (this.isIndexedDBDisabled && this.storageInfo) {
+        this.indexedDBDisabledReason = this.storageInfo.status.includes('Disabled:')
+          ? this.storageInfo.status.replace('Disabled: ', '')
+          : 'Unknown reason';
+      }
     } catch (error) {
       console.error('Failed to load storage info:', error);
     }
@@ -113,6 +127,20 @@ export class SettingsComponent implements OnInit {
     if (!this.selectedFile) {
       this.showMessage('Please select a file to import.', 'error');
       return;
+    }
+
+    // Check if there's existing data that would be overwritten
+    if (this.storageService.hasExistingData()) {
+      const confirmOverwrite = confirm(
+        '⚠️ WARNING: Importing data will overwrite all your existing inventory data in the browser.\n\n' +
+        'This action cannot be undone. All your current inventories, part ownership data, and settings will be replaced.\n\n' +
+        'Do you want to continue?'
+      );
+
+      if (!confirmOverwrite) {
+        this.showMessage('Import cancelled. Your existing data remains unchanged.', 'success');
+        return;
+      }
     }
 
     try {
@@ -181,6 +209,44 @@ export class SettingsComponent implements OnInit {
       } catch (error) {
         console.error('Error clearing all data:', error);
         this.showMessage('Failed to clear all data. Please try again.', 'error');
+      }
+    }
+  }
+
+  async clearAllDataAndCache(): Promise<void> {
+    if (this.isRefreshingCSV) return;
+
+    if (confirm('⚠️ This will permanently delete ALL your inventory data and cached CSV data. This action cannot be undone. Are you sure?')) {
+      this.isRefreshingCSV = true;
+      try {
+        console.log('Starting complete data clear...');
+
+        // Clear user data from storage service
+        await this.storageService.clearAllData();
+        console.log('Storage service data cleared');
+
+        // Clear CSV cache if IndexedDB is available
+        if ('indexedDB' in window) {
+          try {
+            await this.indexedDBService.clearAllData();
+            console.log('IndexedDB cleared completely');
+
+            // Reset session state after clearing to allow fresh caching
+            this.indexedDBService.resetSessionState();
+            console.log('IndexedDB session state reset');
+          } catch (error) {
+            console.warn('Failed to clear IndexedDB data:', error);
+          }
+        }
+
+        console.log('All data cleared successfully, reloading page...');
+        // Refresh the page to reload everything fresh
+        window.location.reload();
+      } catch (error) {
+        console.error('Error clearing all data:', error);
+        alert('Error clearing data. Please try again.');
+      } finally {
+        this.isRefreshingCSV = false;
       }
     }
   }
@@ -304,6 +370,61 @@ export class SettingsComponent implements OnInit {
       };
     } finally {
       this.isCheckingIntegrity = false;
+    }
+  }
+
+  async resetIndexedDB(): Promise<void> {
+    if (this.isResettingIndexedDB) return;
+    this.isResettingIndexedDB = true;
+
+    try {
+      // Force cleanup first
+      this.indexedDBService.forceCleanup();
+
+      // Reset session state
+      this.indexedDBService.resetSessionState();
+
+      // Reload storage info to reflect changes
+      await this.loadStorageInfo();
+
+      console.log('IndexedDB session state reset successfully');
+    } catch (error) {
+      console.error('Error resetting IndexedDB:', error);
+    } finally {
+      this.isResettingIndexedDB = false;
+    }
+  }
+
+  async deleteEntireDatabase(): Promise<void> {
+    if (this.isResettingIndexedDB) return;
+
+    if (!confirm('⚠️ WARNING: This will completely delete the IndexedDB database and all cached data. This cannot be undone. Continue?')) {
+      return;
+    }
+
+    this.isResettingIndexedDB = true;
+
+    try {
+      // Force cleanup and delete database
+      this.indexedDBService.forceCleanup();
+      await this.indexedDBService.deleteDatabase();
+
+      // Reset session state
+      this.indexedDBService.resetSessionState();
+
+      // Reload storage info to reflect changes
+      await this.loadStorageInfo();
+
+      console.log('IndexedDB database deleted successfully');
+      alert('Database deleted successfully. The page will reload to reinitialize.');
+
+      // Reload the page to reinitialize everything
+      window.location.reload();
+    } catch (error) {
+      console.error('Error deleting database:', error);
+      alert(`Failed to delete database: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      this.isResettingIndexedDB = false;
     }
   }
 

@@ -22,99 +22,102 @@ export class StorageService {
   private migrationCompleted = false;
 
   constructor(private indexedDBService: IndexedDBService) {
-    this.isIndexedDBSupported = IndexedDBService.isSupported();
+    this.checkIndexedDBSupport();
     this.loadState();
+  }
+
+  private checkIndexedDBSupport(): void {
+    // First check if IndexedDB is disabled for this session
+    if (this.indexedDBService.isDisabledForSession()) {
+      this.isIndexedDBSupported = false;
+      console.warn(`IndexedDB disabled for session: ${this.indexedDBService.getDisabledReason()}`);
+      return;
+    }
+
+    // Then check browser support
+    this.isIndexedDBSupported = IndexedDBService.isSupported();
+
+    if (!this.isIndexedDBSupported) {
+      console.warn('IndexedDB not supported by browser, using localStorage fallback');
+    }
   }
 
   /**
    * Load app state from IndexedDB or localStorage, always preferring the newest data
    */
-  private async loadState(): Promise<void> {
+  async loadState(): Promise<void> {
+    // Re-check support in case it was disabled during initialization
+    this.checkIndexedDBSupport();
+
     try {
-      let finalState: AppState | null = null;
-
       if (this.isIndexedDBSupported) {
-        // IndexedDB is supported - check both sources and use the newest
-        const [indexedDBState, localStorageState] = await Promise.all([
-          this.loadFromIndexedDB(),
-          this.loadFromLocalStorage()
-        ]);
+        // Try IndexedDB first - no timeout, let it complete naturally
+        // This prevents inappropriate fallbacks during database initialization
+        const state = await this.loadFromIndexedDB();
 
-        // Determine which data is newer
-        const indexedDBTimestamp = indexedDBState?.timestamp || 0;
-        const localStorageTimestamp = localStorageState?.timestamp || 0;
-
-        if (localStorageState && localStorageTimestamp > indexedDBTimestamp) {
-          // localStorage has newer data - migrate it to IndexedDB
-          console.log('Found newer data in localStorage, migrating to IndexedDB...');
-          try {
-            await this.indexedDBService.saveAppState(localStorageState.data);
-            finalState = localStorageState.data;
-
-            // Clear localStorage after successful migration
-            localStorage.removeItem(this.FALLBACK_KEY);
-            console.log('Successfully migrated newer data from localStorage to IndexedDB');
-            this.migrationCompleted = true;
-          } catch (error) {
-            console.error('Failed to migrate data from localStorage to IndexedDB:', error);
-            // Use localStorage data anyway
-            finalState = localStorageState.data;
-          }
-        } else if (indexedDBState) {
-          // IndexedDB has the newest data (or equal timestamps)
-          finalState = indexedDBState.data;
-
-          // If localStorage also has data but it's older, clean it up
-          if (localStorageState && localStorageTimestamp <= indexedDBTimestamp) {
-            localStorage.removeItem(this.FALLBACK_KEY);
-            console.log('Cleaned up older data from localStorage');
-          }
-        } else if (localStorageState) {
-          // Only localStorage has data - migrate it
-          console.log('Migrating data from localStorage to IndexedDB...');
-          try {
-            await this.indexedDBService.saveAppState(localStorageState.data);
-            finalState = localStorageState.data;
-
-            // Clear localStorage after successful migration
-            localStorage.removeItem(this.FALLBACK_KEY);
-            console.log('Successfully migrated data from localStorage to IndexedDB');
-            this.migrationCompleted = true;
-          } catch (error) {
-            console.error('Failed to migrate data from localStorage to IndexedDB:', error);
-            // Use localStorage data anyway
-            finalState = localStorageState.data;
-          }
+        if (state) {
+          this.appStateSubject.next(state);
+          this.saveState();
+          return;
         }
-        // If neither source has data, finalState remains null (will use defaults)
-
-      } else {
-        // IndexedDB not supported - use localStorage only
-        console.log('IndexedDB not supported, using localStorage only');
-        const localStorageState = await this.loadFromLocalStorage();
-        finalState = localStorageState?.data || null;
-      }
-
-      if (finalState) {
-        // Migrate existing data structure if needed
-        const migratedState = this.migrateState(finalState);
-        this.appStateSubject.next(migratedState);
       }
     } catch (error) {
-      console.error('Failed to load app state:', error);
-      // Continue with default state if loading fails
+      console.warn('Failed to load from IndexedDB, using localStorage fallback:', error);
+      // Re-check support after failure
+      this.checkIndexedDBSupport();
     }
+
+    // Fallback to localStorage
+    try {
+      const localStorageState = await this.loadFromLocalStorage();
+      if (localStorageState) {
+        this.appStateSubject.next(localStorageState.data);
+        this.saveState();
+        return;
+      }
+    } catch (error) {
+      console.warn('Failed to load from localStorage, using default state:', error);
+    }
+
+    // Use default state if all loading methods fail
+    this.appStateSubject.next({
+      userInventories: [],
+      activeInventoryId: null,
+      globalSettings: {
+        imagePreviewSize: '1x',
+        includeSparePartsInProgress: true
+      }
+    });
+    this.saveState();
   }
 
   /**
-   * Load state from IndexedDB with timestamp
+   * Load state from IndexedDB with timeout
    */
-  private async loadFromIndexedDB(): Promise<{ data: AppState; timestamp: number } | null> {
+  private async loadFromIndexedDB(): Promise<AppState | null> {
     try {
-      return await this.indexedDBService.loadAppStateWithTimestamp();
+      if (!this.isIndexedDBSupported || this.indexedDBService.isDisabledForSession()) {
+        return null;
+      }
+
+      const result = await this.indexedDBService.loadAppStateWithTimestamp();
+      if (!result) {
+        return null;
+      }
+
+      const { data, timestamp } = result;
+
+      // Check if IndexedDB data is fresher than localStorage
+      const localTimestamp = this.getLocalStorageTimestamp();
+      if (localTimestamp && timestamp < localTimestamp) {
+        // localStorage is newer, prefer it
+        return null;
+      }
+
+      return data;
     } catch (error) {
       console.error('Error loading from IndexedDB:', error);
-      return null;
+      throw error; // Re-throw to trigger fallback
     }
   }
 
@@ -196,26 +199,28 @@ export class StorageService {
       const currentState = this.appStateSubject.getValue();
       const timestamp = Date.now();
 
-      if (this.isIndexedDBSupported) {
+      // Re-check support before attempting save
+      this.checkIndexedDBSupport();
+
+      if (this.isIndexedDBSupported && !this.indexedDBService.isDisabledForSession()) {
         try {
+          // Save to IndexedDB - no timeout, let it complete naturally
+          // This prevents inappropriate fallbacks during database initialization
           await this.indexedDBService.saveAppState(currentState);
+          return; // Success, no need for fallback
         } catch (error) {
-          console.error('Failed to save to IndexedDB, falling back to localStorage:', error);
-          // Fallback to localStorage with timestamp
-          const dataWithTimestamp = {
-            data: currentState,
-            timestamp: timestamp
-          };
-          localStorage.setItem(this.FALLBACK_KEY, JSON.stringify(dataWithTimestamp));
+          console.warn('Failed to save to IndexedDB, falling back to localStorage:', error);
+          // Re-check support after failure
+          this.checkIndexedDBSupport();
         }
-      } else {
-        // IndexedDB not supported - use localStorage with timestamp
-        const dataWithTimestamp = {
-          data: currentState,
-          timestamp: timestamp
-        };
-        localStorage.setItem(this.FALLBACK_KEY, JSON.stringify(dataWithTimestamp));
       }
+
+      // Use localStorage (either as fallback or primary storage)
+      const dataWithTimestamp = {
+        data: currentState,
+        timestamp: timestamp
+      };
+      localStorage.setItem(this.FALLBACK_KEY, JSON.stringify(dataWithTimestamp));
     } catch (error) {
       console.error('Failed to save app state:', error);
     }
@@ -341,9 +346,17 @@ export class StorageService {
    */
   async clearAllData(): Promise<void> {
     try {
+      this.checkIndexedDBSupport();
+
       if (this.isIndexedDBSupported) {
-        // Clear only user data, preserve CSV cache
-        await this.indexedDBService.clearUserData();
+        try {
+          // Clear only user data, preserve CSV cache
+          await this.indexedDBService.clearUserData();
+        } catch (error) {
+          console.warn('Failed to clear IndexedDB data, clearing localStorage:', error);
+          this.checkIndexedDBSupport();
+          localStorage.removeItem(this.FALLBACK_KEY);
+        }
       } else {
         // Fallback to localStorage
         localStorage.removeItem(this.FALLBACK_KEY);
@@ -370,8 +383,14 @@ export class StorageService {
    * Clear CSV cache only (for manual refresh)
    */
   async clearCSVCache(): Promise<void> {
+    this.checkIndexedDBSupport();
     if (this.isIndexedDBSupported) {
-      await this.indexedDBService.clearCSVCache();
+      try {
+        await this.indexedDBService.clearCSVCache();
+      } catch (error) {
+        console.warn('Failed to clear CSV cache from IndexedDB:', error);
+        this.checkIndexedDBSupport();
+      }
     }
   }
 
@@ -380,8 +399,16 @@ export class StorageService {
    */
   async clearAllDataIncludingCache(): Promise<void> {
     try {
+      this.checkIndexedDBSupport();
+
       if (this.isIndexedDBSupported) {
-        await this.indexedDBService.clearAllData();
+        try {
+          await this.indexedDBService.clearAllData();
+        } catch (error) {
+          console.warn('Failed to clear all IndexedDB data, clearing localStorage:', error);
+          this.checkIndexedDBSupport();
+          localStorage.removeItem(this.FALLBACK_KEY);
+        }
       } else {
         // Fallback to localStorage
         localStorage.removeItem(this.FALLBACK_KEY);
@@ -407,23 +434,36 @@ export class StorageService {
   /**
    * Get storage information
    */
-  async getStorageInfo(): Promise<{ used: number; quota: number; type: string } | null> {
+  async getStorageInfo(): Promise<{ used: number; quota: number; type: string; status: string } | null> {
+    this.checkIndexedDBSupport();
+
     if (this.isIndexedDBSupported) {
-      const info = await this.indexedDBService.getStorageInfo();
-      return info ? { ...info, type: 'IndexedDB' } : null;
-    } else {
-      // Estimate localStorage usage
       try {
-        const data = localStorage.getItem(this.FALLBACK_KEY);
-        const used = data ? new Blob([data]).size : 0;
-        return {
-          used,
-          quota: 5 * 1024 * 1024, // Typical localStorage limit is ~5MB
-          type: 'localStorage'
-        };
+        const info = await this.indexedDBService.getStorageInfo();
+        return info ? { ...info, type: 'IndexedDB', status: 'Active' } : null;
       } catch (error) {
-        return null;
+        console.warn('Failed to get IndexedDB storage info:', error);
+        this.checkIndexedDBSupport();
+        // Fall through to localStorage
       }
+    }
+
+    // Use localStorage info (either as fallback or primary)
+    try {
+      const data = localStorage.getItem(this.FALLBACK_KEY);
+      const used = data ? new Blob([data]).size : 0;
+      const status = this.indexedDBService.isDisabledForSession()
+        ? `Disabled: ${this.indexedDBService.getDisabledReason()}`
+        : 'Fallback';
+
+      return {
+        used,
+        quota: 5 * 1024 * 1024, // Typical localStorage limit is ~5MB
+        type: 'localStorage',
+        status
+      };
+    } catch (error) {
+      return null;
     }
   }
 
@@ -432,5 +472,44 @@ export class StorageService {
    */
   isUsingIndexedDB(): boolean {
     return this.isIndexedDBSupported;
+  }
+
+  private getLocalStorageTimestamp(): number | null {
+    const storedData = localStorage.getItem(this.FALLBACK_KEY);
+    if (storedData) {
+      const parsed = JSON.parse(storedData);
+      if (parsed.data && parsed.timestamp) {
+        return parsed.timestamp;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Reset IndexedDB and try to re-enable it
+   */
+  async resetIndexedDB(): Promise<boolean> {
+    try {
+      this.indexedDBService.resetSessionState();
+      this.checkIndexedDBSupport();
+
+      if (this.isIndexedDBSupported) {
+        // Try to save current state to test IndexedDB
+        await this.saveState();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to reset IndexedDB:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if there is existing user data that would be overwritten
+   */
+  hasExistingData(): boolean {
+    const currentState = this.appStateSubject.getValue();
+    return currentState.userInventories.length > 0;
   }
 }
