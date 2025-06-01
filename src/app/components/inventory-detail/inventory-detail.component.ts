@@ -250,26 +250,26 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
    * Load minifigure parts asynchronously and update cache
    */
   private loadMinifigPartsAsync(figNum: string, inventoryId: number): void {
-    // Get cached reference data
-    const allParts = this.dataService.getCurrentParts();
-    const allColors = this.dataService.getCurrentColors();
-    const allElements = this.dataService.getCurrentElements();
+        // Get cached reference data
+        const allParts = this.dataService.getCurrentParts();
+        const allColors = this.dataService.getCurrentColors();
+        const allElements = this.dataService.getCurrentElements();
 
     // Create quick lookup maps
-    const partsMap = new Map(allParts.map(p => [p.part_num, p]));
-    const colorsMap = new Map(allColors.map(c => [c.id, c]));
-    const elementsMap = new Map(allElements.map(e => [`${e.part_num}_${e.color_id}`, e.element_id]));
+        const partsMap = new Map(allParts.map(p => [p.part_num, p]));
+        const colorsMap = new Map(allColors.map(c => [c.id, c]));
+        const elementsMap = new Map(allElements.map(e => [`${e.part_num}_${e.color_id}`, e.element_id]));
 
     // Load inventory parts for this minifigure
     this.dataService.getInventoryPartsFromCache(inventoryId).subscribe(inventoryParts => {
-      const partDetails: PartDetail[] = [];
+        const partDetails: PartDetail[] = [];
 
-      for (const invPart of inventoryParts) {
-        const part = partsMap.get(invPart.part_num);
-        const color = colorsMap.get(invPart.color_id);
+        for (const invPart of inventoryParts) {
+          const part = partsMap.get(invPart.part_num);
+          const color = colorsMap.get(invPart.color_id);
 
-        if (part && color) {
-          const elementId = elementsMap.get(`${invPart.part_num}_${invPart.color_id}`);
+          if (part && color) {
+            const elementId = elementsMap.get(`${invPart.part_num}_${invPart.color_id}`);
           const storageKey = this.getMinifigPartStorageKey(
             this.userInventory?.set_num || '',
             figNum,
@@ -279,17 +279,17 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
 
           const quantityOwned = this.userInventory?.minifigPartsOwned?.[storageKey] || 0;
 
-          const partDetail: PartDetail = {
-            inventoryPart: invPart,
-            part: part,
-            color: color,
-            imageUrl: invPart.img_url,
-            quantityNeeded: invPart.quantity,
-            quantityOwned: quantityOwned,
+            const partDetail: PartDetail = {
+              inventoryPart: invPart,
+              part: part,
+              color: color,
+              imageUrl: invPart.img_url,
+              quantityNeeded: invPart.quantity,
+              quantityOwned: quantityOwned,
             elementId: elementId
           };
 
-          partDetails.push(partDetail);
+              partDetails.push(partDetail);
         }
       }
 

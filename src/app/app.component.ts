@@ -3,11 +3,12 @@ import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { DataService } from './services/data.service';
 import { ExportService } from './services/export.service';
+import { LoadingOverlayComponent } from './components/loading-overlay/loading-overlay.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, LoadingOverlayComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
@@ -19,8 +20,7 @@ export class AppComponent implements OnInit {
   constructor(
     private dataService: DataService,
     private exportService: ExportService
-  ) {
-  }
+  ) {}
 
   ngOnInit(): void {
     // Subscribe to data loading status

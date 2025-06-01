@@ -85,18 +85,18 @@
             <div class="mt-4">
               <!-- When spare parts are included in progress -->
               <div *ngIf="globalSettings.includeSparePartsInProgress">
-                <div class="flex justify-between text-sm text-gray-600 mb-1">
-                  <span>Overall Progress</span>
-                  <span>{{ totalPartsOwned + totalSparePartsOwned + totalMinifigsOwned }} / {{ totalPartsNeeded +
-                    totalSparePartsNeeded + totalMinifigsNeeded }} items ({{ overallProgress | number:'1.1-1' }}%)</span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-3">
-                  <div class="h-3 rounded-full transition-all duration-300" [class.bg-green-500]="overallProgress >= 100"
-                    [class.bg-yellow-500]="overallProgress > 0 && overallProgress < 100"
-                    [class.bg-red-500]="overallProgress === 0" [style.width.%]="overallProgress">
-                  </div>
+              <div class="flex justify-between text-sm text-gray-600 mb-1">
+                <span>Overall Progress</span>
+                <span>{{ totalPartsOwned + totalSparePartsOwned + totalMinifigsOwned }} / {{ totalPartsNeeded +
+                  totalSparePartsNeeded + totalMinifigsNeeded }} items ({{ overallProgress | number:'1.1-1' }}%)</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-3">
+                <div class="h-3 rounded-full transition-all duration-300" [class.bg-green-500]="overallProgress >= 100"
+                  [class.bg-yellow-500]="overallProgress > 0 && overallProgress < 100"
+                  [class.bg-red-500]="overallProgress === 0" [style.width.%]="overallProgress">
                 </div>
               </div>
+            </div>
 
               <!-- When spare parts are excluded from progress -->
               <div *ngIf="!globalSettings.includeSparePartsInProgress">
@@ -973,8 +973,8 @@
                           <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned - 1)"
                                   [disabled]="part.quantityOwned <= 0"
                                   class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
-                            -
-                          </button>
+                      -
+                    </button>
                           <input type="number" [value]="part.quantityOwned"
                                  (input)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, +$any($event.target).value)"
                                  (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
@@ -982,9 +982,9 @@
                           <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned + 1)"
                                   [disabled]="part.quantityOwned >= part.quantityNeeded"
                                   class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
-                            +
-                          </button>
-                        </div>
+                      +
+                    </button>
+                  </div>
 
                         <!-- Status indicator -->
                         <div class="mt-2 text-center">
@@ -995,23 +995,23 @@
                             <span *ngIf="part.quantityOwned > 0 && part.quantityOwned < part.quantityNeeded">⚠</span>
                             <span *ngIf="part.quantityOwned === 0">✗</span>
                           </span>
-                        </div>
+                </div>
 
-                        <!-- Quick action buttons -->
+                <!-- Quick action buttons -->
                         <div class="flex items-center justify-center space-x-1 mt-2">
                           <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityNeeded)"
                                   [disabled]="part.quantityOwned >= part.quantityNeeded"
                                   class="w-6 h-4 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
-                                  title="Mark as complete">
-                            ✓
-                          </button>
+                    title="Mark as complete">
+                    ✓
+                  </button>
                           <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, 0)"
                                   [disabled]="part.quantityOwned === 0"
                                   class="w-6 h-4 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
-                                  title="Clear quantity">
-                            ✗
-                          </button>
-                        </div>
+                    title="Clear quantity">
+                    ✗
+                  </button>
+                </div>
                       </div>
                     </div>
                   </div>
@@ -1044,36 +1044,36 @@
                     <tr [class.bg-green-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
                       [class.bg-yellow-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
                       [class.bg-red-50]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0">
-                      <td class="px-2 py-2 w-48">
-                        <div class="flex items-center">
-                          <div [class]="getListImageSizeClasses() + ' mr-2 flex-shrink-0 cursor-pointer'"
-                            (click)="openImageOverlay(minifig.imageUrl, minifig.minifig.name)">
-                            <img [src]="minifig.imageUrl" [alt]="minifig.minifig.name"
-                              class="w-full h-full object-contain hover:opacity-80 transition-opacity">
-                          </div>
-                          <div class="min-w-0 flex-1">
-                            <div class="text-sm font-medium text-gray-900">{{ minifig.minifig.name }}</div>
-                            <div class="text-sm text-gray-500">{{ minifig.minifig.fig_num }}</div>
-                          </div>
+                    <td class="px-2 py-2 w-48">
+                      <div class="flex items-center">
+                        <div [class]="getListImageSizeClasses() + ' mr-2 flex-shrink-0 cursor-pointer'"
+                          (click)="openImageOverlay(minifig.imageUrl, minifig.minifig.name)">
+                          <img [src]="minifig.imageUrl" [alt]="minifig.minifig.name"
+                            class="w-full h-full object-contain hover:opacity-80 transition-opacity">
                         </div>
-                      </td>
-                      <td class="px-2 py-2 whitespace-nowrap w-24">
-                        <div class="text-sm text-gray-900">{{ minifig.minifig.num_parts }}</div>
-                      </td>
-                      <td class="px-2 py-2 whitespace-nowrap w-32" *ngIf="isMissingPartsMode">
-                        <div class="text-sm text-gray-900 truncate">{{ minifig.setName }} ({{ minifig.setNum }})</div>
-                      </td>
-                      <td class="px-2 py-2 whitespace-nowrap w-32">
-                        <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1">
-                          <div class="h-1.5 rounded-full transition-all duration-300"
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm font-medium text-gray-900">{{ minifig.minifig.name }}</div>
+                          <div class="text-sm text-gray-500">{{ minifig.minifig.fig_num }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-24">
+                      <div class="text-sm text-gray-900">{{ minifig.minifig.num_parts }}</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-32" *ngIf="isMissingPartsMode">
+                      <div class="text-sm text-gray-900 truncate">{{ minifig.setName }} ({{ minifig.setNum }})</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-32">
+                      <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1">
+                        <div class="h-1.5 rounded-full transition-all duration-300"
                             [class.bg-green-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage >= 100"
                             [class.bg-yellow-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage > 0 && getMinifigPartsProgress(minifig.minifig.fig_num).percentage < 100"
                             [class.bg-red-500]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage === 0"
                             [style.width.%]="getMinifigPartsProgress(minifig.minifig.fig_num).percentage">
-                          </div>
                         </div>
+                      </div>
                         <div class="text-sm text-gray-500 text-center">{{ getMinifigPartsProgress(minifig.minifig.fig_num).owned }}/{{ getMinifigPartsProgress(minifig.minifig.fig_num).total }}</div>
-                      </td>
+                    </td>
                       <td class="px-2 py-2 whitespace-nowrap w-24 text-center">
                         <button (click)="toggleMinifigParts(minifig.minifig.fig_num)"
                           class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700 transition flex items-center">
@@ -1136,12 +1136,12 @@
                                       <div class="text-xs text-gray-500 text-center">{{ part.quantityOwned }}/{{ part.quantityNeeded }}</div>
                                     </td>
                                     <td class="px-2 py-2 whitespace-nowrap">
-                                      <div class="flex items-center justify-center space-x-1">
+                      <div class="flex items-center justify-center space-x-1">
                                         <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned - 1)"
                                                 [disabled]="part.quantityOwned <= 0"
                                                 class="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
-                                          -
-                                        </button>
+                          -
+                        </button>
                                         <input type="number" [value]="part.quantityOwned"
                                                (input)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, +$any($event.target).value)"
                                                (focus)="$any($event.target).select()" [min]="0" [max]="part.quantityNeeded"
@@ -1149,27 +1149,27 @@
                                         <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityOwned + 1)"
                                                 [disabled]="part.quantityOwned >= part.quantityNeeded"
                                                 class="w-5 h-5 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-xs font-bold">
-                                          +
-                                        </button>
-                                      </div>
-                                    </td>
+                          +
+                        </button>
+                      </div>
+                    </td>
                                     <td class="px-2 py-2 whitespace-nowrap text-center">
-                                      <div class="flex items-center justify-center space-x-1">
+                      <div class="flex items-center justify-center space-x-1">
                                         <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, part.quantityNeeded)"
                                                 [disabled]="part.quantityOwned >= part.quantityNeeded"
                                                 class="w-5 h-4 rounded bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
-                                                title="Mark as complete">
-                                          ✓
-                                        </button>
+                          title="Mark as complete">
+                          ✓
+                        </button>
                                         <button (click)="updateMinifigPartQuantity(userInventory?.set_num || '', minifig.minifig.fig_num, part, 0)"
                                                 [disabled]="part.quantityOwned === 0"
                                                 class="w-5 h-4 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white text-xs font-bold"
-                                                title="Clear quantity">
-                                          ✗
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
+                          title="Clear quantity">
+                          ✗
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                                 </tbody>
                               </table>
                             </div>

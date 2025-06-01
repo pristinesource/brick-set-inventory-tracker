@@ -10,6 +10,7 @@ import {
 } from '../models/models';
 import { StorageService } from './storage.service';
 import { IndexedDBService } from './indexeddb.service';
+import { LoadingService } from './loading.service';
 
 @Injectable({
   providedIn: 'root'
@@ -41,113 +42,88 @@ export class DataService {
   private sets: PartialSet[] = [];
   private themes: Theme[] = [];
 
-  private readonly CSV_VERSION = '1.0.4'; // Increment this to force cache refresh with improved data saving
+  private readonly CSV_VERSION = '2.0.0'; // Major version bump for new IndexedDB structure with individual object stores
 
   constructor(
     private http: HttpClient,
     private storageService: StorageService,
-    private indexedDBService: IndexedDBService
+    private indexedDBService: IndexedDBService,
+    private loadingService: LoadingService
   ) {
     this.loadData();
   }
 
   /**
-   * Load data from IndexedDB cache or CSV files if cache is invalid
+   * Check if CSV cache is valid and load data accordingly
    */
   private async loadData(): Promise<void> {
-    if (this.dataLoading) {
-      return;
-    }
-
+    if (this.dataLoading) return;
     this.dataLoading = true;
 
     try {
+      this.loadingService.updateProgress({ isLoading: true, phase: 'Initializing...', percentage: 0 });
       let csvData: any = null;
 
-      // Only try to use CSV cache if IndexedDB is supported
+      // Check if we should use IndexedDB or CSV files
       if (IndexedDBService.isSupported()) {
-        // Check if CSV cache is valid
+        this.loadingService.updateProgress({ phase: 'Checking cache...', percentage: 5 });
+
+        const startTime = performance.now();
         const isCacheValid = await this.indexedDBService.isCSVCacheValid();
+        const cacheCheckTime = performance.now() - startTime;
 
         if (isCacheValid) {
+          this.loadingService.updateProgress({ phase: 'Loading from cache...', percentage: 15 });
+
+          const cacheStartTime = performance.now();
           csvData = await this.indexedDBService.loadCSVDataCache();
+          const cacheLoadTime = performance.now() - cacheStartTime;
 
-          if (csvData) {
-            console.log('CSV data loaded from IndexedDB cache:');
-            Object.keys(csvData).forEach(key => {
-              if (Array.isArray(csvData[key])) {
-                console.log(`  ${key}: ${csvData[key].length} records`);
-              } else {
-                console.log(`  ${key}: ${typeof csvData[key]}`);
-              }
-            });
-          } else {
-            console.log('No CSV data found in IndexedDB cache');
-          }
-        }
-
-        if (!csvData) {
-          csvData = await this.loadFromCSVFiles();
-
-          // Log what we're about to save to understand data sizes
-          console.log('CSV data loaded, preparing to save to IndexedDB:');
-          Object.keys(csvData).forEach(key => {
-            if (Array.isArray(csvData[key])) {
-              console.log(`  ${key}: ${csvData[key].length} records`);
-            } else {
-              console.log(`  ${key}: ${typeof csvData[key]}`);
-            }
-          });
+          this.loadingService.updateProgress({ phase: 'Cache loaded successfully', percentage: 85 });
+        } else {
+          this.loadingService.updateProgress({ phase: 'Cache invalid, loading CSV files...', percentage: 12 });
+          csvData = await this.loadFromCSVFilesWithProgress();
 
           // Save to IndexedDB cache
-          try {
-            const dataToSave = {
-              inventories: csvData.inventories || [],
-              inventoryParts: csvData.inventoryParts || [],
-              inventoryMinifigs: csvData.inventoryMinifigs || [],
-              inventorySets: csvData.inventorySets || [],
-              parts: csvData.parts || [],
-              colors: csvData.colors || [],
-              partCategories: csvData.partCategories || [],
-              partRelationships: csvData.partRelationships || [],
-              elements: csvData.elements || [],
-              minifigs: csvData.minifigs || [],
-              sets: csvData.sets || [],
-              themes: csvData.themes || [],
-              timestamp: Date.now(),
-              version: this.CSV_VERSION
-            };
-
-            console.log('Saving to IndexedDB with explicit structure...');
-            await this.indexedDBService.saveCSVDataCache(dataToSave);
-            console.log('Successfully saved CSV data to IndexedDB');
-          } catch (error) {
-            console.warn('Failed to cache CSV data to IndexedDB, will continue with memory-only storage:', error);
+          if (csvData) {
+            await this.saveToIndexedDB(csvData);
           }
         }
       } else {
-        // IndexedDB not supported - load CSV data fresh and keep in memory only
-        csvData = await this.loadFromCSVFiles();
+        csvData = await this.loadFromCSVFilesWithProgress();
       }
 
       // Load data into memory
+      this.loadingService.updateProgress({ phase: 'Loading into memory...', percentage: 95 });
       this.loadDataIntoMemory(csvData);
+
+      this.loadingService.updateProgress({ phase: 'Initializing cache...', percentage: 98 });
       this.initializeCache();
+
+      this.loadingService.updateProgress({ phase: 'Completed!', percentage: 100 });
       this.dataLoaded.next(true);
       this.dataLoading = false;
 
+      // Hide loading overlay after a brief delay to show completion
+      setTimeout(() => {
+        this.loadingService.hideLoading();
+      }, 1000);
+
     } catch (error) {
-      console.error('DataService: Error loading data:', error);
-      this.dataLoaded.next(true); // Still set to true to prevent infinite loading
+      console.error('Error loading data:', error);
+      this.loadingService.hideLoading();
+      this.dataLoaded.next(true);
       this.dataLoading = false;
     }
   }
 
   /**
-   * Load all CSV files and return the data
+   * Load CSV files with progress tracking
    */
-  private async loadFromCSVFiles(): Promise<any> {
+  private async loadFromCSVFilesWithProgress(): Promise<any> {
     // First, load the manifest to see which files are split
+    this.loadingService.updateProgress({ phase: 'Loading manifest...', percentage: 20 });
+
     let manifest: CSVManifest;
     try {
       const manifestText = await this.http.get('assets/data/manifest.json', { responseType: 'text' }).toPromise();
@@ -171,6 +147,8 @@ export class DataService {
       };
     }
 
+    this.loadingService.updateProgress({ phase: 'Preparing file requests...', percentage: 22 });
+
     const fileConfigs = [
       { key: 'inventories', baseName: 'inventories' },
       { key: 'inventoryParts', baseName: 'inventory_parts' },
@@ -186,35 +164,82 @@ export class DataService {
       { key: 'themes', baseName: 'themes' }
     ];
 
-    // Create requests for all file parts
-    const requests: Promise<any>[] = [];
+    // Count total files to download for progress tracking
+    let totalFiles = 0;
+    fileConfigs.forEach(({ baseName }) => {
+      totalFiles += manifest[baseName] || 1;
+    });
 
-    fileConfigs.forEach(({ key, baseName }) => {
+    this.loadingService.updateProgress({
+      phase: `Downloading ${totalFiles} CSV files...`,
+      percentage: 25,
+      current: 0,
+      total: totalFiles
+    });
+
+    // Download files with progress tracking
+    const results: any[] = [];
+    let downloadedFiles = 0;
+
+    for (const { key, baseName } of fileConfigs) {
       const partCount = manifest[baseName] || 1;
 
       if (partCount === 1) {
         // Single file
         const url = `assets/data/${baseName}.csv`;
-        const request = this.http.get(url, { responseType: 'text' }).pipe(
-          timeout(key === 'inventoryParts' ? 120000 : 60000), // Longer timeout for large files
-          map(csv => ({ key, csv, part: 1, totalParts: 1 }))
-        ).toPromise();
-        requests.push(request);
+
+        try {
+          const csv = await this.http.get(url, { responseType: 'text' }).pipe(
+            timeout(key === 'inventoryParts' ? 120000 : 60000)
+          ).toPromise();
+
+          results.push({ key, csv, part: 1, totalParts: 1 });
+          downloadedFiles++;
+
+          const downloadProgress = Math.round(25 + (downloadedFiles / totalFiles) * 20); // 25-45% for downloads
+          this.loadingService.updateProgress({
+            phase: `Downloaded ${baseName}.csv`,
+            percentage: downloadProgress,
+            current: downloadedFiles,
+            total: totalFiles
+          });
+
+        } catch (error) {
+          console.error(`Failed to download ${url}:`, error);
+          results.push({ key, csv: '', part: 1, totalParts: 1 });
+          downloadedFiles++;
+        }
       } else {
         // Multiple parts
         for (let partNum = 1; partNum <= partCount; partNum++) {
           const url = `assets/data/${baseName}_part_${partNum}.csv`;
-          const request = this.http.get(url, { responseType: 'text' }).pipe(
-            timeout(60000),
-            map(csv => ({ key, csv, part: partNum, totalParts: partCount }))
-          ).toPromise();
-          requests.push(request);
+
+          try {
+            const csv = await this.http.get(url, { responseType: 'text' }).pipe(
+              timeout(60000)
+            ).toPromise();
+
+            results.push({ key, csv, part: partNum, totalParts: partCount });
+            downloadedFiles++;
+
+            const downloadProgress = Math.round(25 + (downloadedFiles / totalFiles) * 20); // 25-45% for downloads
+            this.loadingService.updateProgress({
+              phase: `Downloaded ${baseName}_part_${partNum}.csv`,
+              percentage: downloadProgress,
+              current: downloadedFiles,
+              total: totalFiles
+            });
+
+          } catch (error) {
+            console.error(`Failed to download ${url}:`, error);
+            results.push({ key, csv: '', part: partNum, totalParts: partCount });
+            downloadedFiles++;
+          }
         }
       }
-    });
+    }
 
-    // Load all parts in parallel
-    const results = await Promise.all(requests);
+    this.loadingService.updateProgress({ phase: 'Processing CSV data...', percentage: 45 });
 
     const csvData: any = {};
 
@@ -227,7 +252,7 @@ export class DataService {
     const groupedResults = new Map<string, any[]>();
 
     results.forEach(result => {
-      if (result) {
+      if (result && result.csv) {
         if (!groupedResults.has(result.key)) {
           groupedResults.set(result.key, []);
         }
@@ -235,12 +260,24 @@ export class DataService {
       }
     });
 
-    // Parse and combine CSV data
+    // Parse and combine CSV data with progress tracking
+    let processedDataTypes = 0;
+    const totalDataTypes = groupedResults.size;
+
     for (const [key, parts] of groupedResults) {
       try {
+        const parseProgress = Math.round(45 + ((processedDataTypes / totalDataTypes) * 5)); // 45-50% for parsing
+        this.loadingService.updateProgress({
+          phase: `Processing ${key}...`,
+          percentage: parseProgress,
+          current: processedDataTypes + 1,
+          total: totalDataTypes
+        });
+
         if (parts.length === 1) {
           // Single file
           csvData[key] = this.parseCSV(parts[0].csv);
+          console.log(`Parsed ${key}: ${csvData[key].length} records`);
         } else {
           // Multiple parts - combine them
           console.log(`Combining ${parts.length} parts for ${key}`);
@@ -252,19 +289,24 @@ export class DataService {
 
           for (let i = 0; i < parts.length; i++) {
             const part = parts[i];
-            console.log(`Processing part ${i + 1}/${parts.length} for ${key}...`);
-
             const partData = this.parseCSV(part.csv);
 
             if (i === 0) {
-              // First part, include all data
-              combinedData = partData;
+              // First part, include all data (create a copy to avoid reference issues)
+              combinedData = [...partData];
             } else {
               // Subsequent parts, append data using concat() to avoid stack overflow
               combinedData = combinedData.concat(partData);
             }
 
-            console.log(`Processed part ${i + 1}/${parts.length} for ${key}: ${partData.length} records (total: ${combinedData.length})`);
+            // Update progress for large file processing
+            if (parts.length > 1) {
+              const partProgress = Math.round(45 + ((processedDataTypes / totalDataTypes) * 5) + ((i + 1) / parts.length) * (5 / totalDataTypes));
+              this.loadingService.updateProgress({
+                phase: `Processing ${key} part ${i + 1}/${parts.length}...`,
+                percentage: partProgress
+              });
+            }
 
             // Clear the part data to free memory
             partData.length = 0;
@@ -282,8 +324,11 @@ export class DataService {
         console.error(`Error parsing ${key}:`, error);
         csvData[key] = [];
       }
+
+      processedDataTypes++;
     }
 
+    this.loadingService.updateProgress({ phase: 'CSV processing completed', percentage: 50 });
     return csvData;
   }
 
@@ -312,16 +357,19 @@ export class DataService {
     if (this.cacheInitialized) return;
 
     // Cache parts
+    this.loadingService.updateProgress({ phase: 'Caching parts...', percentage: 98.2 });
     this.parts.forEach(part => {
       this.partsCache.set(part.part_num, part);
     });
 
     // Cache colors
+    this.loadingService.updateProgress({ phase: 'Caching colors...', percentage: 98.4 });
     this.colors.forEach(color => {
       this.colorsCache.set(color.id, color);
     });
 
     // Cache elements
+    this.loadingService.updateProgress({ phase: 'Caching elements...', percentage: 98.6 });
     this.elements.forEach(element => {
       this.elementsCache.set(element.element_id, element);
       // Also cache by part_num + color_id combination
@@ -329,19 +377,22 @@ export class DataService {
     });
 
     // Cache minifigs
+    this.loadingService.updateProgress({ phase: 'Caching minifigs...', percentage: 98.7 });
     this.minifigs.forEach(minifig => {
       this.minifigsCache.set(minifig.fig_num, minifig);
     });
 
     // Cache inventory parts by inventory_id for O(1) lookups
+    this.loadingService.updateProgress({ phase: 'Indexing inventory parts...', percentage: 98.8 });
     this.inventoryParts.forEach(part => {
-      if (!this.inventoryPartsCache.has(part.inventory_id)) {
-        this.inventoryPartsCache.set(part.inventory_id, []);
-      }
-      this.inventoryPartsCache.get(part.inventory_id)!.push(part);
-    });
+        if (!this.inventoryPartsCache.has(part.inventory_id)) {
+          this.inventoryPartsCache.set(part.inventory_id, []);
+        }
+        this.inventoryPartsCache.get(part.inventory_id)!.push(part);
+      });
 
     // Cache inventory minifigs by inventory_id for O(1) lookups
+    this.loadingService.updateProgress({ phase: 'Indexing inventory minifigs...', percentage: 98.9 });
     this.inventoryMinifigs.forEach(minifig => {
       if (!this.inventoryMinifigsCache.has(minifig.inventory_id)) {
         this.inventoryMinifigsCache.set(minifig.inventory_id, []);
@@ -349,6 +400,7 @@ export class DataService {
       this.inventoryMinifigsCache.get(minifig.inventory_id)!.push(minifig);
     });
 
+    this.loadingService.updateProgress({ phase: 'Cache initialization complete', percentage: 99 });
     this.cacheInitialized = true;
   }
 
@@ -378,8 +430,8 @@ export class DataService {
       // Load fresh data
       await this.loadData();
 
-      return true;
-    } catch (error) {
+          return true;
+        } catch (error) {
       console.error('Error refreshing CSV data:', error);
       return false;
     }
@@ -451,12 +503,12 @@ export class DataService {
 
       if (char === '"' && inQuotes && nextChar === '"') {
         // Escaped quote
-        current += '"';
+          current += '"';
         i += 2;
       } else if (char === '"') {
         // Toggle quote mode
-        inQuotes = !inQuotes;
-        i++;
+          inQuotes = !inQuotes;
+          i++;
       } else if (char === ',' && !inQuotes) {
         // Field separator
         result.push(current.trim().replace(/\r/g, '')); // Trim each field value and remove \r
@@ -550,11 +602,11 @@ export class DataService {
         take(1), // Only take the first emission
         switchMap(() => {
           // Double-check cache is initialized after data loaded
-          if (!this.cacheInitialized) {
-            this.initializeCache();
-          }
+    if (!this.cacheInitialized) {
+      this.initializeCache();
+    }
           const parts = this.inventoryPartsCache.get(inventoryId) || [];
-          return of(parts);
+      return of(parts);
         })
       );
     }
@@ -573,8 +625,8 @@ export class DataService {
         take(1), // Only take the first emission
         switchMap(() => {
           // Double-check cache is initialized after data loaded
-          if (!this.cacheInitialized) {
-            this.initializeCache();
+    if (!this.cacheInitialized) {
+      this.initializeCache();
           }
           const minifigs = this.inventoryMinifigsCache.get(inventoryId) || [];
           return of(minifigs);
@@ -591,60 +643,60 @@ export class DataService {
    */
   getSetsPaginated(page: number = 1, pageSize: number = 24, searchTerm?: string, yearFilter?: number): Observable<{sets: Set[], totalCount: number, hasNext: boolean}> {
     if (!this.cacheInitialized) {
-      return this.dataLoaded.pipe(
+    return this.dataLoaded.pipe(
         switchMap(() => this.getSetsPaginatedInternal(page, pageSize, searchTerm, yearFilter))
       );
-    }
+        }
 
     return this.getSetsPaginatedInternal(page, pageSize, searchTerm, yearFilter);
-  }
+            }
 
   private getSetsPaginatedInternal(page: number, pageSize: number, searchTerm?: string, yearFilter?: number): Observable<{sets: Set[], totalCount: number, hasNext: boolean}> {
-    // Create a map of set_num to versions for efficient lookup
-    const setVersionsMap = new Map<string, number[]>();
+                // Create a map of set_num to versions for efficient lookup
+                const setVersionsMap = new Map<string, number[]>();
 
     this.inventories.forEach(inv => {
-      if (!setVersionsMap.has(inv.set_num)) {
-        setVersionsMap.set(inv.set_num, []);
-      }
-      setVersionsMap.get(inv.set_num)!.push(inv.version);
-    });
+                  if (!setVersionsMap.has(inv.set_num)) {
+                    setVersionsMap.set(inv.set_num, []);
+                  }
+                  setVersionsMap.get(inv.set_num)!.push(inv.version);
+                });
 
-    // Sort versions for each set
-    setVersionsMap.forEach((versions, setNum) => {
-      setVersionsMap.set(setNum, versions.sort((a, b) => a - b));
-    });
+                // Sort versions for each set
+                setVersionsMap.forEach((versions, setNum) => {
+                  setVersionsMap.set(setNum, versions.sort((a, b) => a - b));
+                });
 
-    // Map partial sets to full sets with versions
+                // Map partial sets to full sets with versions
     let setsWithVersions = this.sets.map(partialSet => ({
-      ...partialSet,
-      versions: setVersionsMap.get(partialSet.set_num) || [1]
-    }));
+                  ...partialSet,
+                  versions: setVersionsMap.get(partialSet.set_num) || [1]
+                }));
 
-    // Apply filters
-    if (searchTerm && searchTerm.trim()) {
-      const search = searchTerm.toLowerCase();
-      setsWithVersions = setsWithVersions.filter(set =>
-        set.name.toLowerCase().includes(search) ||
-        set.set_num.toLowerCase().includes(search)
-      );
-    }
+                // Apply filters
+                if (searchTerm && searchTerm.trim()) {
+                  const search = searchTerm.toLowerCase();
+                  setsWithVersions = setsWithVersions.filter(set =>
+                    set.name.toLowerCase().includes(search) ||
+                    set.set_num.toLowerCase().includes(search)
+                  );
+                }
 
-    if (yearFilter) {
-      setsWithVersions = setsWithVersions.filter(set => set.year === yearFilter);
-    }
+                if (yearFilter) {
+                  setsWithVersions = setsWithVersions.filter(set => set.year === yearFilter);
+                }
 
-    // Apply pagination
-    const totalCount = setsWithVersions.length;
-    const startIndex = (page - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-    const paginatedSets = setsWithVersions.slice(startIndex, endIndex);
-    const hasNext = endIndex < totalCount;
+                // Apply pagination
+                const totalCount = setsWithVersions.length;
+                const startIndex = (page - 1) * pageSize;
+                const endIndex = startIndex + pageSize;
+                const paginatedSets = setsWithVersions.slice(startIndex, endIndex);
+                const hasNext = endIndex < totalCount;
 
     return of({
-      sets: paginatedSets,
-      totalCount,
-      hasNext
+                  sets: paginatedSets,
+                  totalCount,
+                  hasNext
     });
   }
 
@@ -753,7 +805,7 @@ export class DataService {
   }
 
   /**
-   * Get current data statistics for debugging
+   * Get current data statistics
    */
   getCurrentDataStats(): any {
     return {
@@ -768,9 +820,71 @@ export class DataService {
       elements: this.elements.length,
       minifigs: this.minifigs.length,
       sets: this.sets.length,
-      themes: this.themes.length,
-      cacheInitialized: this.cacheInitialized,
-      dataLoading: this.dataLoading
+      themes: this.themes.length
     };
+  }
+
+  /**
+   * Helper method to calculate total number of records across all data arrays
+   */
+  private getTotalRecords(data: any): number {
+    let total = 0;
+    const arrays = ['inventories', 'inventoryParts', 'inventoryMinifigs', 'inventorySets', 'parts', 'colors', 'partCategories', 'partRelationships', 'elements', 'minifigs', 'sets', 'themes'];
+
+    arrays.forEach(arrayName => {
+      if (Array.isArray(data[arrayName])) {
+        total += data[arrayName].length;
+      }
+    });
+
+    return total;
+  }
+
+  /**
+   * Save CSV data to IndexedDB cache
+   */
+  private async saveToIndexedDB(csvData: any): Promise<void> {
+    try {
+      const dataToSave = {
+        inventories: csvData.inventories || [],
+        inventoryParts: csvData.inventoryParts || [],
+        inventoryMinifigs: csvData.inventoryMinifigs || [],
+        inventorySets: csvData.inventorySets || [],
+        parts: csvData.parts || [],
+        colors: csvData.colors || [],
+        partCategories: csvData.partCategories || [],
+        partRelationships: csvData.partRelationships || [],
+        elements: csvData.elements || [],
+        minifigs: csvData.minifigs || [],
+        sets: csvData.sets || [],
+        themes: csvData.themes || [],
+        timestamp: Date.now(),
+        version: this.CSV_VERSION
+      };
+
+      await this.indexedDBService.saveCSVDataCache(dataToSave, (progress) => {
+        this.loadingService.updateProgress({
+          phase: progress.phase,
+          percentage: 50 + Math.round(progress.percentage * 0.4), // 50-90% range for saving
+          current: progress.current,
+          total: progress.total
+        });
+      });
+
+      // Verify the data was saved correctly
+      const verificationData = await this.indexedDBService.loadCSVDataCache();
+      if (verificationData) {
+        // Compare record counts to detect data loss
+        const originalTotal = this.getTotalRecords(csvData);
+        const verificationTotal = this.getTotalRecords(verificationData);
+
+        if (originalTotal !== verificationTotal) {
+          console.error('Data loss detected during save operation');
+          console.error(`Original total: ${originalTotal}, Verification total: ${verificationTotal}, Lost: ${originalTotal - verificationTotal} records`);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to cache CSV data to IndexedDB:', error);
+    }
   }
 }

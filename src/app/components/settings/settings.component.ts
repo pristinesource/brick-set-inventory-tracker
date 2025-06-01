@@ -24,6 +24,18 @@ export class SettingsComponent implements OnInit {
   isUsingIndexedDB = false;
   csvCacheInfo: { exists: boolean; timestamp?: number; age?: number; isValid?: boolean } | null = null;
   isRefreshingCSV = false;
+  isCheckingIntegrity = false;
+  dataIntegrityResults: {
+    comparisons: Array<{
+      dataType: string;
+      memoryCount: number;
+      indexedDBCount: number;
+    }>;
+    totalMemory: number;
+    totalIndexedDB: number;
+    isHealthy: boolean;
+    message: string;
+  } | null = null;
 
   constructor(
     private storageService: StorageService,
@@ -212,9 +224,87 @@ export class SettingsComponent implements OnInit {
   getCacheStatusClass(): string {
     if (!this.isUsingIndexedDB) return 'text-gray-500';
     if (!this.csvCacheInfo) return 'text-gray-500';
-    if (!this.csvCacheInfo.exists) return 'text-red-600';
-    if (this.csvCacheInfo.isValid) return 'text-green-600';
-    return 'text-orange-600';
+    return this.csvCacheInfo.exists && this.csvCacheInfo.isValid
+      ? 'text-green-600'
+      : 'text-orange-600';
+  }
+
+  async checkDataIntegrity(): Promise<void> {
+    this.isCheckingIntegrity = true;
+    this.dataIntegrityResults = null;
+
+    try {
+      // Get current data stats from DataService
+      const memoryStats = this.dataService.getCurrentDataStats();
+
+      // Get IndexedDB cached data
+      const indexedDBService = (this.storageService as any).indexedDBService;
+      const cachedData = await indexedDBService.loadCSVDataCache();
+
+      const comparisons: Array<{
+        dataType: string;
+        memoryCount: number;
+        indexedDBCount: number;
+      }> = [];
+      let totalMemory = 0;
+      let totalIndexedDB = 0;
+      let hasDiscrepancies = false;
+
+      const dataTypes = [
+        'inventories',
+        'inventoryParts',
+        'inventoryMinifigs',
+        'inventorySets',
+        'parts',
+        'colors',
+        'partCategories',
+        'partRelationships',
+        'elements',
+        'minifigs',
+        'sets',
+        'themes'
+      ];
+
+      dataTypes.forEach(dataType => {
+        const memoryCount = memoryStats[dataType] || 0;
+        const indexedDBCount = cachedData && Array.isArray(cachedData[dataType]) ? cachedData[dataType].length : 0;
+
+        comparisons.push({
+          dataType: dataType.charAt(0).toUpperCase() + dataType.slice(1),
+          memoryCount,
+          indexedDBCount
+        });
+
+        totalMemory += memoryCount;
+        totalIndexedDB += indexedDBCount;
+
+        if (memoryCount !== indexedDBCount) {
+          hasDiscrepancies = true;
+        }
+      });
+
+      this.dataIntegrityResults = {
+        comparisons,
+        totalMemory,
+        totalIndexedDB,
+        isHealthy: !hasDiscrepancies,
+        message: hasDiscrepancies
+          ? 'Some data counts differ between memory and IndexedDB cache. Consider refreshing CSV data.'
+          : 'All data counts match between memory and IndexedDB cache. Data integrity is good.'
+      };
+
+    } catch (error) {
+      console.error('Error checking data integrity:', error);
+      this.dataIntegrityResults = {
+        comparisons: [],
+        totalMemory: 0,
+        totalIndexedDB: 0,
+        isHealthy: false,
+        message: 'Failed to check data integrity. Error: ' + (error as Error).message
+      };
+    } finally {
+      this.isCheckingIntegrity = false;
+    }
   }
 
   private showMessage(text: string, type: 'success' | 'error'): void {
