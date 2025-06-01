@@ -565,6 +565,9 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
       }
     }
 
+    // Check if all parts for this minifigure are now complete and update minifigure quantity accordingly
+    this.checkAndUpdateMinifigCompletion(figNum);
+
     const updatedInventory: UserInventory = {
       ...this.userInventory,
       lastUpdated: Date.now()
@@ -584,6 +587,52 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
       description: `Changed ${part.part.name} (${figNum}) quantity from ${previousQuantity} to ${clampedQuantity}`
     };
     this.addUndoAction(undoAction);
+  }
+
+  /**
+   * Check if all parts for a minifigure are complete and update the minifigure quantity accordingly
+   */
+  private checkAndUpdateMinifigCompletion(figNum: string): void {
+    if (!this.userInventory) return;
+
+    // Find the minifigure in our current list
+    const minifig = this.minifigs.find(m => m.minifig.fig_num === figNum);
+    if (!minifig) return;
+
+    // Get all parts for this minifigure
+    const minifigParts = this.getMinifigParts(figNum);
+    if (!minifigParts || minifigParts.length === 0) return;
+
+    // Check if all parts are complete
+    const allPartsComplete = minifigParts.every(part => part.quantityOwned >= part.quantityNeeded);
+    const anyPartsIncomplete = minifigParts.some(part => part.quantityOwned < part.quantityNeeded);
+
+    // Determine what the minifigure quantity should be
+    let shouldBeQuantity: number;
+    if (allPartsComplete) {
+      // All parts complete = minifigure should be complete
+      shouldBeQuantity = minifig.quantityNeeded;
+    } else if (anyPartsIncomplete && minifig.quantityOwned === minifig.quantityNeeded) {
+      // Some parts incomplete but minifigure is marked complete = mark minifigure as incomplete
+      shouldBeQuantity = 0;
+    } else {
+      // Keep current minifigure quantity if it's a partial state
+      shouldBeQuantity = minifig.quantityOwned;
+    }
+
+    // Only update if the minifigure quantity needs to change
+    if (minifig.quantityOwned !== shouldBeQuantity) {
+      // Update the minifigure quantity
+      minifig.quantityOwned = shouldBeQuantity;
+
+      // Update storage
+      if (!this.userInventory.minifigsOwned) {
+        this.userInventory.minifigsOwned = {};
+      }
+      this.userInventory.minifigsOwned[figNum] = shouldBeQuantity;
+
+      console.log(`Auto-updated minifigure ${figNum} quantity to ${shouldBeQuantity} (all parts complete: ${allPartsComplete})`);
+    }
   }
 
   getPartImageUrl(partNum: string, colorId: number, elementId: string): string {
@@ -642,7 +691,7 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     if (!this.userInventory) return;
 
     const action = owned ? 'mark all minifigures as complete' : 'mark all minifigures as missing';
-    const message = `Are you sure you want to ${action}? This will update the quantities for all ${this.minifigs.length} minifigures in this set.`;
+    const message = `Are you sure you want to ${action}? This will update the quantities for all ${this.minifigs.length} minifigures and their individual parts in this set.`;
 
     if (!confirm(message)) {
       return;
@@ -660,22 +709,113 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
       minifigsOwned[k] = typeof v === 'number' ? v : (v ? 1 : 0);
     }
 
-    // Update all minifigs
+    // Initialize minifigPartsOwned if it doesn't exist
+    if (!this.userInventory.minifigPartsOwned) {
+      this.userInventory.minifigPartsOwned = {};
+    }
+
+    // Update all minifigs and load their parts asynchronously
+    const updatePromises: Promise<void>[] = [];
+
     for (const minifig of this.minifigs) {
       minifigsOwned[minifig.inventoryMinifig.fig_num] = owned ? minifig.quantityNeeded : 0;
       minifig.quantityOwned = minifigsOwned[minifig.inventoryMinifig.fig_num];
+
+      // Create a promise to update individual minifigure parts
+      const updatePromise = this.updateMinifigPartsAsync(minifig.minifig.fig_num, owned);
+      updatePromises.push(updatePromise);
     }
 
-    const updatedInventory: UserInventory = {
-      ...this.userInventory,
-      partsOwned,
-      minifigsOwned,
-      lastUpdated: Date.now()
-    };
+    // Wait for all minifigure parts to be updated
+    Promise.all(updatePromises).then(() => {
+      // Update the user inventory after all parts are processed
+      const updatedInventory: UserInventory = {
+        ...this.userInventory!,
+        partsOwned,
+        minifigsOwned,
+        minifigPartsOwned: this.userInventory!.minifigPartsOwned,
+        lastUpdated: Date.now()
+      };
 
-    this.storageService.updateUserInventory(updatedInventory);
-    this.userInventory = updatedInventory;
-    this.updateCounts();
+      this.storageService.updateUserInventory(updatedInventory);
+      this.userInventory = updatedInventory;
+      this.updateCounts();
+    }).catch(error => {
+      console.error('Error updating minifigure parts:', error);
+    });
+  }
+
+  /**
+   * Update all parts for a specific minifigure
+   */
+  private async updateMinifigPartsAsync(figNum: string, owned: boolean): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Get all inventories and find the one for this minifigure
+      const allInventories = this.dataService.getCurrentInventories();
+      const minifigInventory = allInventories.find(inv => inv.set_num === figNum);
+
+      if (!minifigInventory) {
+        resolve(); // No inventory found, nothing to update
+        return;
+      }
+
+      // Get cached reference data
+      const allParts = this.dataService.getCurrentParts();
+      const allColors = this.dataService.getCurrentColors();
+      const allElements = this.dataService.getCurrentElements();
+
+      // Create quick lookup maps
+      const partsMap = new Map(allParts.map(p => [p.part_num, p]));
+      const colorsMap = new Map(allColors.map(c => [c.id, c]));
+      const elementsMap = new Map(allElements.map(e => [`${e.part_num}_${e.color_id}`, e.element_id]));
+
+      // Load inventory parts for this minifigure
+      this.dataService.getInventoryPartsFromCache(minifigInventory.id).subscribe({
+        next: (inventoryParts) => {
+          const partDetails: PartDetail[] = [];
+
+          for (const invPart of inventoryParts) {
+            const part = partsMap.get(invPart.part_num);
+            const color = colorsMap.get(invPart.color_id);
+
+            if (part && color) {
+              const elementId = elementsMap.get(`${invPart.part_num}_${invPart.color_id}`);
+              const storageKey = this.getMinifigPartStorageKey(
+                this.userInventory!.set_num,
+                figNum,
+                invPart.part_num,
+                invPart.color_id
+              );
+
+              const quantity = owned ? invPart.quantity : 0;
+              this.userInventory!.minifigPartsOwned![storageKey] = quantity;
+
+              const partDetail: PartDetail = {
+                inventoryPart: invPart,
+                part: part,
+                color: color,
+                imageUrl: invPart.img_url,
+                quantityNeeded: invPart.quantity,
+                quantityOwned: quantity,
+                elementId: elementId
+              };
+
+              partDetails.push(partDetail);
+            }
+          }
+
+          // Sort and cache the parts
+          const sortedParts = this.sortMinifigParts(partDetails);
+          this.minifigPartsCache.set(figNum, sortedParts);
+
+          resolve();
+        },
+        error: (error) => {
+          console.error(`Error loading parts for minifigure ${figNum}:`, error);
+          reject(error);
+        }
+      });
+    });
   }
 
   markAllSparePartsOwned(owned: boolean): void {
@@ -1021,7 +1161,6 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
       }
     }
   }
-
   removeSortOption(type: 'parts' | 'minifigs' | 'spare-parts', index: number): void {
     if (type === 'parts') {
       this.partsSortOptions.splice(index, 1);
@@ -1949,3 +2088,4 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     this.updateCounts();
   }
 }
+
