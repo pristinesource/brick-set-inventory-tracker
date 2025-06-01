@@ -597,6 +597,8 @@
                     <p class="text-sm text-gray-600">Part #: {{ part.part.part_num }}</p>
                     <p class="text-sm text-gray-600">Color: {{ part.color.name }}</p>
                     <p class="text-sm text-gray-600" *ngIf="part.elementId">Element ID: {{ part.elementId }}</p>
+                    <p class="text-sm text-blue-600 font-medium" *ngIf="isMissingPartsMode && part.setName">From: {{
+                      part.setName }} ({{ part.setNum }})</p>
                     <p class="text-sm text-orange-600">Spare Part</p>
                   </div>
                 </div>
@@ -680,6 +682,8 @@
                       Color</th>
                     <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-28">
                       Element ID</th>
+                    <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32"
+                      *ngIf="isMissingPartsMode">Set</th>
                     <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-32">
                       Progress</th>
                     <th class="px-2 py-2 text-left text-sm font-medium text-gray-500 uppercase tracking-wider w-36">
@@ -711,6 +715,9 @@
                     </td>
                     <td class="px-2 py-2 whitespace-nowrap w-28">
                       <div class="text-sm text-gray-900 truncate">{{ part.elementId }}</div>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap w-32" *ngIf="isMissingPartsMode">
+                      <div class="text-sm text-gray-900 truncate">{{ part.setName }} ({{ part.setNum }})</div>
                     </td>
                     <td class="px-2 py-2 whitespace-nowrap w-32">
                       <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1">
