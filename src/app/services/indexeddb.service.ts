@@ -189,6 +189,10 @@ export class IndexedDBService {
    */
   async saveCSVDataCache(csvData: CSVDataCache): Promise<void> {
     try {
+      // Calculate approximate size of data
+      const dataSize = JSON.stringify(csvData).length;
+      console.log(`Attempting to save CSV data cache: ~${Math.round(dataSize / 1024 / 1024)} MB`);
+
       const db = await this.ensureDB();
       const transaction = db.transaction([this.CSV_STORE_NAME], 'readwrite');
       const store = transaction.objectStore(this.CSV_STORE_NAME);
@@ -204,6 +208,7 @@ export class IndexedDBService {
         const request = store.put(csvRecord);
 
         request.onsuccess = () => {
+          console.log('CSV data cache saved successfully to IndexedDB');
           resolve();
         };
         request.onerror = () => {

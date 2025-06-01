@@ -41,7 +41,7 @@ export class DataService {
   private sets: PartialSet[] = [];
   private themes: Theme[] = [];
 
-  private readonly CSV_VERSION = '1.0.3'; // Increment this to force cache refresh with improved header cleaning
+  private readonly CSV_VERSION = '1.0.4'; // Increment this to force cache refresh with improved data saving
 
   constructor(
     private http: HttpClient,
@@ -71,18 +71,56 @@ export class DataService {
 
         if (isCacheValid) {
           csvData = await this.indexedDBService.loadCSVDataCache();
+
+          if (csvData) {
+            console.log('CSV data loaded from IndexedDB cache:');
+            Object.keys(csvData).forEach(key => {
+              if (Array.isArray(csvData[key])) {
+                console.log(`  ${key}: ${csvData[key].length} records`);
+              } else {
+                console.log(`  ${key}: ${typeof csvData[key]}`);
+              }
+            });
+          } else {
+            console.log('No CSV data found in IndexedDB cache');
+          }
         }
 
         if (!csvData) {
           csvData = await this.loadFromCSVFiles();
 
+          // Log what we're about to save to understand data sizes
+          console.log('CSV data loaded, preparing to save to IndexedDB:');
+          Object.keys(csvData).forEach(key => {
+            if (Array.isArray(csvData[key])) {
+              console.log(`  ${key}: ${csvData[key].length} records`);
+            } else {
+              console.log(`  ${key}: ${typeof csvData[key]}`);
+            }
+          });
+
           // Save to IndexedDB cache
           try {
-            await this.indexedDBService.saveCSVDataCache({
-              ...csvData,
+            const dataToSave = {
+              inventories: csvData.inventories || [],
+              inventoryParts: csvData.inventoryParts || [],
+              inventoryMinifigs: csvData.inventoryMinifigs || [],
+              inventorySets: csvData.inventorySets || [],
+              parts: csvData.parts || [],
+              colors: csvData.colors || [],
+              partCategories: csvData.partCategories || [],
+              partRelationships: csvData.partRelationships || [],
+              elements: csvData.elements || [],
+              minifigs: csvData.minifigs || [],
+              sets: csvData.sets || [],
+              themes: csvData.themes || [],
               timestamp: Date.now(),
               version: this.CSV_VERSION
-            });
+            };
+
+            console.log('Saving to IndexedDB with explicit structure...');
+            await this.indexedDBService.saveCSVDataCache(dataToSave);
+            console.log('Successfully saved CSV data to IndexedDB');
           } catch (error) {
             console.warn('Failed to cache CSV data to IndexedDB, will continue with memory-only storage:', error);
           }
@@ -712,5 +750,27 @@ export class DataService {
     }
 
     return await this.indexedDBService.getCSVCacheInfo();
+  }
+
+  /**
+   * Get current data statistics for debugging
+   */
+  getCurrentDataStats(): any {
+    return {
+      inventories: this.inventories.length,
+      inventoryParts: this.inventoryParts.length,
+      inventoryMinifigs: this.inventoryMinifigs.length,
+      inventorySets: this.inventorySets.length,
+      parts: this.parts.length,
+      colors: this.colors.length,
+      partCategories: this.partCategories.length,
+      partRelationships: this.partRelationships.length,
+      elements: this.elements.length,
+      minifigs: this.minifigs.length,
+      sets: this.sets.length,
+      themes: this.themes.length,
+      cacheInitialized: this.cacheInitialized,
+      dataLoading: this.dataLoading
+    };
   }
 }
