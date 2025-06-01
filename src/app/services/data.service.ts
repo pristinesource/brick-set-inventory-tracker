@@ -198,7 +198,7 @@ export class DataService {
     });
 
     // Parse and combine CSV data
-    groupedResults.forEach((parts, key) => {
+    for (const [key, parts] of groupedResults) {
       try {
         if (parts.length === 1) {
           // Single file
@@ -211,19 +211,31 @@ export class DataService {
           parts.sort((a, b) => a.part - b.part);
 
           let combinedData: any[] = [];
-          let headerProcessed = false;
 
-          parts.forEach(part => {
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            console.log(`Processing part ${i + 1}/${parts.length} for ${key}...`);
+
             const partData = this.parseCSV(part.csv);
-            if (!headerProcessed) {
+
+            if (i === 0) {
               // First part, include all data
               combinedData = partData;
-              headerProcessed = true;
             } else {
-              // Subsequent parts, append data (skip header)
-              combinedData.push(...partData);
+              // Subsequent parts, append data using concat() to avoid stack overflow
+              combinedData = combinedData.concat(partData);
             }
-          });
+
+            console.log(`Processed part ${i + 1}/${parts.length} for ${key}: ${partData.length} records (total: ${combinedData.length})`);
+
+            // Clear the part data to free memory
+            partData.length = 0;
+
+            // Give the browser a chance to garbage collect between large operations
+            if (i < parts.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+          }
 
           csvData[key] = combinedData;
           console.log(`Combined ${key}: ${combinedData.length} total records`);
@@ -232,7 +244,7 @@ export class DataService {
         console.error(`Error parsing ${key}:`, error);
         csvData[key] = [];
       }
-    });
+    }
 
     return csvData;
   }
