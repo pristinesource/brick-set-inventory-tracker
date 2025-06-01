@@ -433,8 +433,11 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
   updatePartQuantity(part: PartDetail, quantity: number): void {
     if (!this.userInventory) return;
 
+    // Determine if this is a spare part by checking which array it belongs to
+    const isSpare = this.spareParts.includes(part);
+
     // Capture previous state for undo
-    const key = this.getPartStorageKey(part.inventoryPart.part_num, part.inventoryPart.color_id, part.inventoryPart.is_spare);
+    const key = this.getPartStorageKey(part.inventoryPart.part_num, part.inventoryPart.color_id, isSpare);
     const previousQuantity = part.quantityOwned;
 
     // Ensure quantity is not negative and not more than needed
@@ -610,9 +613,9 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
       partsOwned[k] = typeof v === 'number' ? v : (v ? 1 : 0);
     }
 
-    // Update all parts
+    // Update all parts - always use isSpare=false since these are regular parts from the Parts tab
     for (const part of this.parts) {
-      const key = this.getPartStorageKey(part.inventoryPart.part_num, part.inventoryPart.color_id, part.inventoryPart.is_spare);
+      const key = this.getPartStorageKey(part.inventoryPart.part_num, part.inventoryPart.color_id, false);
       partsOwned[key] = owned ? part.quantityNeeded : 0;
       part.quantityOwned = partsOwned[key];
     }
@@ -691,9 +694,9 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
       partsOwned[k] = typeof v === 'number' ? v : (v ? 1 : 0);
     }
 
-    // Update all spare parts
+    // Update all spare parts - always use isSpare=true since these are spare parts from the Spare Parts tab
     for (const part of this.spareParts) {
-      const key = this.getPartStorageKey(part.inventoryPart.part_num, part.inventoryPart.color_id, part.inventoryPart.is_spare);
+      const key = this.getPartStorageKey(part.inventoryPart.part_num, part.inventoryPart.color_id, true);
       partsOwned[key] = owned ? part.quantityNeeded : 0;
       part.quantityOwned = partsOwned[key];
     }
