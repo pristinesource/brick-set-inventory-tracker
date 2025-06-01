@@ -29,6 +29,7 @@ export class SettingsComponent implements OnInit {
   isRefreshingCSV = false;
   isCheckingIntegrity = false;
   isResettingIndexedDB = false;
+  isClearingAllData = false;
   dataIntegrityResults: {
     comparisons: Array<{
       dataType: string;
@@ -214,10 +215,10 @@ export class SettingsComponent implements OnInit {
   }
 
   async clearAllDataAndCache(): Promise<void> {
-    if (this.isRefreshingCSV) return;
+    if (this.isClearingAllData) return;
 
     if (confirm('⚠️ This will permanently delete ALL your inventory data and cached CSV data. This action cannot be undone. Are you sure?')) {
-      this.isRefreshingCSV = true;
+      this.isClearingAllData = true;
       try {
         console.log('Starting complete data clear...');
 
@@ -246,7 +247,7 @@ export class SettingsComponent implements OnInit {
         console.error('Error clearing all data:', error);
         alert('Error clearing data. Please try again.');
       } finally {
-        this.isRefreshingCSV = false;
+        this.isClearingAllData = false;
       }
     }
   }

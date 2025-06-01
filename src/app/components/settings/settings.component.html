@@ -277,10 +277,10 @@
             </p>
             <button
               (click)="clearAllDataAndCache()"
-              [disabled]="isRefreshingCSV"
+              [disabled]="isClearingAllData"
               class="w-full px-4 py-2 bg-red-800 text-white rounded-md hover:bg-red-900 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center">
-              <div *ngIf="isRefreshingCSV" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              {{ isRefreshingCSV ? 'Clearing All Data...' : 'Clear All Data Including Cache' }}
+              <div *ngIf="isClearingAllData" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              {{ isClearingAllData ? 'Clearing All Data...' : 'Clear All Data Including Cache' }}
             </button>
           </div>
         </div>
