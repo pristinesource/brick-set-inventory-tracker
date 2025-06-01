@@ -940,7 +940,7 @@
                       <div class="p-3">
                         <!-- Part Image and Info -->
                         <div class="flex items-start mb-3">
-                          <div class="w-12 h-12 bg-gray-100 rounded overflow-hidden mr-3 flex-shrink-0 cursor-pointer"
+                          <div [class]="getMinifigPartImageSizeClasses() + ' bg-gray-100 rounded overflow-hidden mr-3 flex-shrink-0 cursor-pointer'"
                                (click)="openImageOverlay(part.imageUrl, part.part.name)">
                             <img [src]="part.imageUrl" [alt]="part.part.name"
                                  class="w-full h-full object-contain hover:opacity-80 transition-opacity">
@@ -1110,7 +1110,7 @@
                                     [class.bg-red-50]="part.quantityOwned === 0">
                                     <td class="px-2 py-2">
                                       <div class="flex items-center">
-                                        <div class="w-8 h-8 bg-gray-100 rounded overflow-hidden mr-2 flex-shrink-0 cursor-pointer"
+                                        <div [class]="getMinifigPartListImageSizeClasses() + ' bg-gray-100 rounded overflow-hidden mr-2 flex-shrink-0 cursor-pointer'"
                                              (click)="openImageOverlay(part.imageUrl, part.part.name)">
                                           <img [src]="part.imageUrl" [alt]="part.part.name"
                                                class="w-full h-full object-contain hover:opacity-80 transition-opacity">

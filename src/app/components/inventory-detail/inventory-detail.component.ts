@@ -1181,6 +1181,30 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     return this.globalSettings.imagePreviewSize === '4x';
   }
 
+  getMinifigPartImageSizeClasses(): string {
+    // Smaller sizes for minifigure parts in tiles view since they're nested content
+    switch (this.globalSettings.imagePreviewSize) {
+      case '2x':
+        return 'w-16 h-16'; // 2x size for minifig parts
+      case '4x':
+        return 'w-24 h-24'; // 4x size for minifig parts
+      default:
+        return 'w-12 h-12'; // 1x size for minifig parts
+    }
+  }
+
+  getMinifigPartListImageSizeClasses(): string {
+    // Even smaller sizes for minifigure parts in list view
+    switch (this.globalSettings.imagePreviewSize) {
+      case '2x':
+        return 'w-12 h-12'; // 2x size for minifig parts in list
+      case '4x':
+        return 'w-16 h-16'; // 4x size for minifig parts in list
+      default:
+        return 'w-8 h-8'; // 1x size for minifig parts in list
+    }
+  }
+
   getLargeImageUrl(imageUrl: string): string {
     // For higher resolution, try to get a larger version of the image
     // This assumes the image URL can be modified to get a larger version
