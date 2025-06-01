@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 OUTPUT_DIR="docs"
-REPO_NAME="brick-inventory"  # Change this to your actual repository name
+REPO_NAME="brick-set-inventory-tracker"  # Change this to your actual repository name
 BASE_HREF="/$REPO_NAME/"
 
 echo -e "${BLUE}🏗️  Building Angular app for GitHub Pages...${NC}"
