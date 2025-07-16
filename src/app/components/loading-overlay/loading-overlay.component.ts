@@ -62,7 +62,7 @@ import { Subscription } from 'rxjs';
             </div>
             <div class="ml-3">
               <p class="text-sm text-blue-700">
-                <strong>First-time setup:</strong> We're organizing hundreds of thousands of building set parts and sets for optimal performance. This only happens once!
+                <strong>First-time setup:</strong> We're organizing hundreds of thousands of building set parts and sets for optimal performance.
               </p>
             </div>
           </div>

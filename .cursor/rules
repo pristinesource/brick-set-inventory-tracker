@@ -1,0 +1,132 @@
+# Cursor Rules for Brick Inventory Angular Project
+
+## Project Overview
+This is an Angular TypeScript application for managing building block inventories using Rebrickable data. The app uses Tailwind CSS for styling and IndexedDB for local data storage.
+
+## Execution and Development Restrictions
+- **DO NOT** attempt to serve, start, or execute this project using `npm start`, `ng serve`, or similar commands
+- **DO NOT** run the development server or attempt to open the application in a browser
+- **DO** use `npm run build` or `ng build` to check for compilation issues
+- **DO** use `npm run lint` or `ng lint` to check for code quality issues
+- **DO** run tests with `npm test` if needed for validation
+
+## 🚨 MANDATORY: AI TOOLING SELF-MAINTENANCE
+**CRITICAL REQUIREMENT**: When you make ANY changes to application functionality, architecture, or project structure, you MUST immediately update the AI tooling configurations to reflect these changes. This is NOT optional.
+
+### Files That MUST Be Updated:
+1. **`.cursor/rules`** - This file (Project Overview, Architecture Guidelines, Service Patterns)
+2. **`.github/copilot-instructions.md`** - GitHub Copilot instructions (Project Context, Service Integration Patterns, File Structure Awareness)
+3. **`.ai-instructions.md`** - General AI instructions (Architecture Guidelines, Service Layer, File Organization sections)
+4. **`ai-context.md`** - Business domain context (Data Relationships, Business Workflows, Integration Points)
+5. **`.vscode/settings.json`** - VS Code settings (if new file types, extensions, or tools are added)
+
+### When Updates Are Required:
+- ✅ Adding new components, services, or modules
+- ✅ Changing data structures or CSV file formats
+- ✅ Modifying build processes or dependencies
+- ✅ Adding new routes or lazy-loaded modules
+- ✅ Changing service responsibilities or patterns
+- ✅ Adding new business logic or workflows
+- ✅ Modifying file organization or naming conventions
+- ✅ Adding new development tools or configurations
+
+### What To Update:
+- **Project Overview**: If fundamental purpose or technology changes
+- **Architecture Guidelines**: If component/service patterns change
+- **Service Usage Patterns**: If service responsibilities change
+- **File Structure Awareness**: If directory structure changes
+- **Business Domain Context**: If data relationships or workflows change
+- **Performance Considerations**: If optimization strategies change
+
+**FAILURE TO UPDATE THESE FILES WILL RESULT IN INCONSISTENT AI ASSISTANCE AND PROJECT CONFUSION.**
+
+## 🗣️ AI Response Behavior & Communication Style
+
+### Response Guidelines
+- **Factual Assessment**: If you tell me that I am wrong, I will evaluate whether that assessment is accurate and respond with facts and evidence
+- **Direct Communication**: Avoid apologizing or making conciliatory statements when not warranted
+- **Professional Tone**: It is not necessary to agree with statements using "You're right" or "Yes" unless factually accurate
+- **Pragmatic Focus**: Avoid hyperbole and excitement; stick to the task at hand and complete it pragmatically
+- **Emojis**: It is acceptable to use emojis in responses to help indicate sections and statuses. This provides a quick way to the user to visually identify sections and their meanings in responses.
+
+### Communication Principles
+- Provide clear, factual responses based on available information
+- Focus on completing requested tasks efficiently
+- Maintain professional tone without unnecessary agreement or apology
+- Present evidence and reasoning when disagreeing or correcting information
+
+## Project Structure Guidelines
+- Components are located in `src/app/components/` with individual folders for each component
+- Services are in `src/app/services/` and handle data management, storage, and utilities
+- Models are defined in `src/app/models/models.ts`
+- Static data files are in `src/assets/data/` and custom data in `src/assets/custom_data/`
+- The app uses lazy loading for route components
+
+## Code Style and Conventions
+- Use TypeScript with strict typing
+- Follow Angular style guide conventions
+- Use Tailwind CSS classes for styling (do not write custom CSS unless necessary)
+- Prefer reactive programming with RxJS observables
+- Use Angular's dependency injection system
+- Components should be standalone (this project uses standalone components)
+
+## Data Management Guidelines
+- The app works with Rebrickable CSV data for building block parts, sets, and inventories
+- Data is stored locally using IndexedDB via the IndexedDBService
+- Large datasets are split into multiple files (e.g., inventory_parts_part_1.csv, etc.)
+- Always check the manifest.json for data file availability and versions
+
+## Service Usage Patterns
+- DataService: Handles loading and parsing CSV data
+- StorageService: Manages user preferences and settings
+- IndexedDBService: Handles local database operations
+- LoadingService: Manages loading states across the application
+- ExportService: Handles data export functionality
+
+## Component Guidelines
+- Use OnPush change detection strategy when possible
+- Implement OnDestroy for cleanup of subscriptions
+- Use trackBy functions for *ngFor loops with large datasets
+- Lazy load routes to improve initial load performance
+
+## File Modification Guidelines
+- When modifying CSV data files, update the manifest.json with new file information
+- Be careful with large data files - consider memory usage when loading
+- Test changes with `ng build` to ensure no compilation errors
+- Always maintain TypeScript strict typing
+
+## Dependencies and Build
+- This project uses Angular 17+ with standalone components
+- Tailwind CSS is configured for styling
+- ESLint is configured for code quality
+- The build outputs to `docs/` directory for GitHub Pages deployment
+
+## Testing Guidelines
+- Run `ng build` after making changes to verify compilation
+- Use `ng lint` to check code quality
+- Test data loading with smaller datasets first
+- Verify CSV parsing logic when modifying data services
+
+## Performance Considerations
+- Large datasets require careful memory management
+- Use virtual scrolling for large lists when possible
+- Implement proper loading states for better UX
+- Consider data pagination for very large inventories
+
+## Security and Privacy
+- No server-side components - this is a client-side only application
+- Data is stored locally in IndexedDB
+- No external API calls except for loading static CSV files
+- Respect user privacy as outlined in PRIVACY.md
+
+## Common Pitfalls to Avoid
+- Don't load all CSV data at once - use lazy loading
+- Don't modify the core Rebrickable data structure without updating types
+- Don't add server dependencies - keep this as a static site
+- Don't ignore TypeScript errors - maintain strict typing
+- Don't bypass the loading service for async operations
+
+## Copyright and Trademark Considerations
+- Do not use the "LEGO" name or logo in general content, instead refer to it using generic terms such as "blocks", "building blocks", "modular building blocks", etc.
+- Only refer to LEGO and Rebrickable when displaying copyright and trademark declarations or when technically necessary for data attribution
+- Avoid using copyrighted or trademarked materials from other sources without proper credit to the copyright and/or trademark holder

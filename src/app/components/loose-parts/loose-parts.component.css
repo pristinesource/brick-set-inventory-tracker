@@ -1,0 +1,289 @@
+/* Custom styles for loose parts component */
+.part-card {
+    transition: all 0.2s ease-in-out;
+    min-height: 300px;
+    /* Ensure consistent card heights */
+    display: flex;
+    flex-direction: column;
+    will-change: transform;
+    /* Optimize animations */
+}
+
+.part-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Ensure part card content fits properly */
+.part-card-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 1rem;
+}
+
+.part-card-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    margin-bottom: 0.25rem;
+    /* Allow text to wrap instead of truncating */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    min-height: 2.5rem;
+    /* Ensure consistent spacing */
+}
+
+.part-card-info {
+    font-size: 0.75rem;
+    color: rgb(75 85 99);
+    margin-bottom: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.part-card-category {
+    font-size: 0.75rem;
+    color: rgb(75 85 99);
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.part-card-actions {
+    margin-top: auto;
+    /* Push actions to bottom */
+}
+
+/* Smooth quantity input transitions */
+.quantity-input {
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    will-change: border-color, box-shadow;
+}
+
+.quantity-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.color-square {
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.collection-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+/* Prevent layout shift during loading */
+.parts-grid {
+    animation: fadeIn 0.3s ease-in-out;
+    contain: layout style;
+    /* CSS containment for performance */
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.filter-badge {
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(-10px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Responsive improvements */
+@media (max-width: 640px) {
+    .parts-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .mobile-hide {
+        display: none;
+    }
+
+    .part-card {
+        min-height: 280px;
+        /* Slightly smaller on mobile */
+    }
+}
+
+/* Color grid scroll improvements */
+.color-grid {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+}
+
+.color-grid::-webkit-scrollbar {
+    width: 6px;
+}
+
+.color-grid::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.color-grid::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.5);
+    border-radius: 3px;
+}
+
+.color-grid::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.7);
+}
+
+/* Loading animation improvements */
+.loading-spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Image overlay improvements */
+.image-overlay img {
+    filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.3));
+}
+
+/* Accessibility improvements */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Focus improvements */
+.focus-visible:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* Button hover animations */
+.btn-hover {
+    transition: all 0.2s ease-in-out;
+}
+
+.btn-hover:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Part image container */
+.part-image-container {
+    width: 4rem;
+    height: 4rem;
+    flex-shrink: 0;
+    /* Prevent shrinking */
+    background: linear-gradient(45deg, #f8fafc 25%, transparent 25%),
+        linear-gradient(-45deg, #f8fafc 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f8fafc 75%),
+        linear-gradient(-45deg, transparent 75%, #f8fafc 75%);
+    background-size: 8px 8px;
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+}
+
+/* Smooth transitions for state changes */
+.state-transition {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar for main content areas */
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.5);
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.7);
+}
+
+/* Prevent button flicker */
+.color-tracking-button {
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+    will-change: background-color, color;
+}
+
+/* Pagination stability */
+.pagination-container {
+    contain: layout;
+    min-height: 3rem;
+    /* Prevent layout shift */
+}
+
+/* Modal animations */
+.modal-backdrop {
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.modal-content {
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Grid stability */
+.stable-grid {
+    contain: layout style;
+    min-height: 200px;
+    /* Prevent collapse during loading */
+}

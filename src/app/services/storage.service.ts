@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { AppState, UserInventory, GlobalSettings } from '../models/models';
+import { AppState, UserInventory, GlobalSettings, LoosePartsInventory } from '../models/models';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { IndexedDBService } from './indexeddb.service';
 
@@ -12,6 +12,8 @@ export class StorageService {
   private appStateSubject = new BehaviorSubject<AppState>({
     userInventories: [],
     activeInventoryId: null,
+    loosePartsInventories: [],
+    activeLoosePartsInventoryId: null,
     globalSettings: {
       imagePreviewSize: '1x',
       includeSparePartsInProgress: true
@@ -56,7 +58,8 @@ export class StorageService {
         const state = await this.loadFromIndexedDB();
 
         if (state) {
-          this.appStateSubject.next(state);
+          const migratedState = this.migrateState(state);
+          this.appStateSubject.next(migratedState);
           this.saveState();
           return;
         }
@@ -71,7 +74,8 @@ export class StorageService {
     try {
       const localStorageState = await this.loadFromLocalStorage();
       if (localStorageState) {
-        this.appStateSubject.next(localStorageState.data);
+        const migratedState = this.migrateState(localStorageState.data);
+        this.appStateSubject.next(migratedState);
         this.saveState();
         return;
       }
@@ -83,6 +87,8 @@ export class StorageService {
     this.appStateSubject.next({
       userInventories: [],
       activeInventoryId: null,
+      loosePartsInventories: [],
+      activeLoosePartsInventoryId: null,
       globalSettings: {
         imagePreviewSize: '1x',
         includeSparePartsInProgress: true
@@ -114,7 +120,7 @@ export class StorageService {
         return null;
       }
 
-      return data;
+      return this.migrateState(data);
     } catch (error) {
       console.error('Error loading from IndexedDB:', error);
       throw error; // Re-throw to trigger fallback
@@ -146,7 +152,7 @@ export class StorageService {
   }
 
   /**
-   * Migrate app state from boolean ownership to quantity-based tracking
+   * Migrate app state from boolean ownership to quantity-based tracking and add loose parts support
    */
   private migrateState(state: AppState): AppState {
     const migratedInventories = state.userInventories.map(inventory => {
@@ -184,10 +190,16 @@ export class StorageService {
       includeSparePartsInProgress: state.globalSettings?.includeSparePartsInProgress || true
     };
 
+    // Ensure loose parts inventories exist (for backward compatibility)
+    const loosePartsInventories = (state as any).loosePartsInventories || [];
+    const activeLoosePartsInventoryId = (state as any).activeLoosePartsInventoryId || null;
+
     return {
       ...state,
       userInventories: migratedInventories,
-      globalSettings
+      globalSettings,
+      loosePartsInventories,
+      activeLoosePartsInventoryId
     };
   }
 
@@ -303,6 +315,75 @@ export class StorageService {
   }
 
   /**
+   * Add a new loose parts inventory
+   */
+  addLoosePartsInventory(inventory: LoosePartsInventory): void {
+    const currentState = this.appStateSubject.getValue();
+    const updatedState = {
+      ...currentState,
+      loosePartsInventories: [...currentState.loosePartsInventories, inventory],
+      activeLoosePartsInventoryId: currentState.activeLoosePartsInventoryId || inventory.id
+    };
+
+    this.appStateSubject.next(updatedState);
+    this.saveState();
+  }
+
+  /**
+   * Update an existing loose parts inventory
+   */
+  updateLoosePartsInventory(inventory: LoosePartsInventory): void {
+    const currentState = this.appStateSubject.getValue();
+    const updatedInventories = currentState.loosePartsInventories.map(inv =>
+      inv.id === inventory.id ? inventory : inv
+    );
+
+    const updatedState = {
+      ...currentState,
+      loosePartsInventories: updatedInventories
+    };
+
+    this.appStateSubject.next(updatedState);
+    this.saveState();
+  }
+
+  /**
+   * Delete a loose parts inventory
+   */
+  deleteLoosePartsInventory(inventoryId: string): void {
+    const currentState = this.appStateSubject.getValue();
+    const updatedInventories = currentState.loosePartsInventories.filter(inv => inv.id !== inventoryId);
+
+    let activeId = currentState.activeLoosePartsInventoryId;
+    if (activeId === inventoryId) {
+      activeId = updatedInventories.length > 0 ? updatedInventories[0].id : null;
+    }
+
+    const updatedState = {
+      ...currentState,
+      loosePartsInventories: updatedInventories,
+      activeLoosePartsInventoryId: activeId
+    };
+
+    this.appStateSubject.next(updatedState);
+    this.saveState();
+  }
+
+  /**
+   * Set active loose parts inventory
+   */
+  setActiveLoosePartsInventory(inventoryId: string): void {
+    const currentState = this.appStateSubject.getValue();
+    const updatedState = {
+      ...currentState,
+      activeLoosePartsInventoryId: inventoryId
+    };
+
+    this.appStateSubject.next(updatedState);
+    this.saveState();
+  }
+
+  /**
    * Export app state as a JSON string for download
    */
   exportState(): string {
@@ -366,6 +447,8 @@ export class StorageService {
       const defaultState: AppState = {
         userInventories: [],
         activeInventoryId: null,
+        loosePartsInventories: [],
+        activeLoosePartsInventoryId: null,
         globalSettings: {
           imagePreviewSize: '1x',
           includeSparePartsInProgress: true
@@ -418,6 +501,8 @@ export class StorageService {
       const defaultState: AppState = {
         userInventories: [],
         activeInventoryId: null,
+        loosePartsInventories: [],
+        activeLoosePartsInventoryId: null,
         globalSettings: {
           imagePreviewSize: '1x',
           includeSparePartsInProgress: true

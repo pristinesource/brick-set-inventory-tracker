@@ -1,0 +1,110 @@
+{
+  // 🚨 IMPORTANT: This file should be updated when new file types, extensions, or development tools are added to the project
+  // See AI configuration files (.cursor/rules, .github/copilot-instructions.md, .ai-instructions.md, ai-context.md) for mandatory update requirements
+  // These files now include "AI Response Behavior & Communication Style" guidelines for consistent AI assistance
+  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "typescript.suggest.autoImports": true,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "typescript.preferences.importModuleSpecifier": "relative",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit",
+    "source.fixAll.eslint": "explicit"
+  },
+  "eslint.validate": [
+    "typescript",
+    "html"
+  ],
+  "eslint.format.enable": true,
+  "angular.enable-strict-mode-prompt": false,
+  "tailwindCSS.includeLanguages": {
+    "typescript": "html",
+    "html": "html"
+  },
+  "tailwindCSS.experimental.classRegex": [
+    [
+      "class\\s*=\\s*[\"']([^\"']*)[\"']",
+      "'([^']*)'"
+    ],
+    [
+      "className\\s*=\\s*[\"']([^\"']*)[\"']",
+      "'([^']*)'"
+    ]
+  ],
+  "files.associations": {
+    "*.csv": "csv"
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/docs": true,
+    "**/*.csv": true,
+    "**/dist": true,
+    "**/.angular": true
+  },
+  "files.exclude": {
+    "**/.angular": true,
+    "**/dist": true,
+    "**/docs": true
+  },
+  "emmet.includeLanguages": {
+    "typescript": "html"
+  },
+  "html.suggest.html5": true,
+  "css.validate": false,
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.patterns": {
+    "*.component.ts": "${capture}.component.html, ${capture}.component.css, ${capture}.component.spec.ts",
+    "*.service.ts": "${capture}.service.spec.ts",
+    "*.module.ts": "${capture}.module.spec.ts"
+  },
+  "terminal.integrated.env.osx": {
+    "NODE_OPTIONS": "--max-old-space-size=8192"
+  },
+  "terminal.integrated.env.linux": {
+    "NODE_OPTIONS": "--max-old-space-size=8192"
+  },
+  "terminal.integrated.env.windows": {
+    "NODE_OPTIONS": "--max-old-space-size=8192"
+  },
+  "typescript.preferences.readonly": false,
+  "workbench.editor.enablePreview": false,
+  "git.ignoreLimitWarning": true,
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "**/manifest.json"
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "lastUpdated": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "number"
+                },
+                "records": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

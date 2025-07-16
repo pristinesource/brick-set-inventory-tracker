@@ -1,896 +1,1164 @@
-import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject, Observable, forkJoin, switchMap, of, throwError } from 'rxjs';
-import { map, tap, catchError, take, timeout } from 'rxjs/operators';
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable, of, switchMap } from 'rxjs';
+import { map, take, timeout } from 'rxjs/operators';
+import type { Set } from '../models/models';
 import {
-  Inventory, InventoryPart, InventoryMinifig, InventorySet,
-  Part, Color, PartCategory, PartRelationship, Element,
-  Minifig, Set, Theme,
-  PartialSet, AppState, CSVManifest
+    CSVManifest,
+    Color,
+    Element,
+    Inventory,
+    InventoryMinifig,
+    InventoryPart,
+    InventorySet,
+    Minifig,
+    Part,
+    PartCategory,
+    PartCategoryToSection,
+    PartPopularityScore,
+    PartRelationship,
+    PartSection,
+    PartialSet,
+    Theme
 } from '../models/models';
-import { StorageService } from './storage.service';
 import { IndexedDBService } from './indexeddb.service';
 import { LoadingService } from './loading.service';
+import { StorageService } from './storage.service';
 
 @Injectable({
-  providedIn: 'root'
+    providedIn: 'root'
 })
 export class DataService {
-  private dataLoaded = new BehaviorSubject<boolean>(false);
-  private dataLoading = false;
+    private dataLoaded = new BehaviorSubject<boolean>(false);
+    private dataLoading = false;
 
-  // In-memory caches for improved performance
-  private partsCache = new Map<string, Part>();
-  private colorsCache = new Map<number, Color>();
-  private elementsCache = new Map<string, Element>();
-  private minifigsCache = new Map<string, Minifig>();
-  private inventoryPartsCache = new Map<number, InventoryPart[]>(); // Cache by inventory_id
-  private inventoryMinifigsCache = new Map<number, InventoryMinifig[]>(); // Cache by inventory_id
-  private cacheInitialized = false;
+    // In-memory caches for improved performance
+    private partsCache = new Map<string, Part>();
+    private colorsCache = new Map<number, Color>();
+    private elementsCache = new Map<string, Element>();
+    private minifigsCache = new Map<string, Minifig>();
+    private inventoryPartsCache = new Map<number, InventoryPart[]>(); // Cache by inventory_id
+    private inventoryMinifigsCache = new Map<number, InventoryMinifig[]>(); // Cache by inventory_id
+    private cacheInitialized = false;
 
-  // Data stores
-  private inventories: Inventory[] = [];
-  private inventoryParts: InventoryPart[] = [];
-  private inventoryMinifigs: InventoryMinifig[] = [];
-  private inventorySets: InventorySet[] = [];
-  private parts: Part[] = [];
-  private colors: Color[] = [];
-  private partCategories: PartCategory[] = [];
-  private partRelationships: PartRelationship[] = [];
-  private elements: Element[] = [];
-  private minifigs: Minifig[] = [];
-  private sets: PartialSet[] = [];
-  private themes: Theme[] = [];
+    // Data stores
+    private inventories: Inventory[] = [];
+    private inventoryParts: InventoryPart[] = [];
+    private inventoryMinifigs: InventoryMinifig[] = [];
+    private inventorySets: InventorySet[] = [];
+    private parts: Part[] = [];
+    private colors: Color[] = [];
+    private partCategories: PartCategory[] = [];
+    private partSections: PartSection[] = [];
+    private partCategoryToSection: PartCategoryToSection[] = [];
+    private partRelationships: PartRelationship[] = [];
+    private elements: Element[] = [];
+    private minifigs: Minifig[] = [];
+    private sets: PartialSet[] = [];
+    private themes: Theme[] = [];
+    private partPopularityScores: PartPopularityScore[] = [];
 
-  private readonly CSV_VERSION = '2.0.0'; // Major version bump for new IndexedDB structure with individual object stores
+    // Fast lookup maps for inventory_parts fallback images (performance optimization)
+    private inventoryPartsImageMap = new Map<string, string>(); // Maps "part_num_color_id" to img_url
+    private inventoryPartsAnyColorMap = new Map<string, string>(); // Maps part_num to first available img_url
 
-  constructor(
-    private http: HttpClient,
-    private storageService: StorageService,
-    private indexedDBService: IndexedDBService,
-    private loadingService: LoadingService
-  ) {
-    this.loadData();
-  }
+    private readonly CSV_VERSION = '2.0.0'; // Major version bump for new IndexedDB structure with individual object stores
 
-  /**
-   * Check if CSV cache is valid and load data accordingly
-   */
-  private async loadData(): Promise<void> {
-    if (this.dataLoading) return;
-    this.dataLoading = true;
+    constructor(
+        private http: HttpClient,
+        private storageService: StorageService,
+        private indexedDBService: IndexedDBService,
+        private loadingService: LoadingService
+    ) {
+        this.loadData();
+    }
 
-    try {
-      this.loadingService.updateProgress({ isLoading: true, phase: 'Initializing...', percentage: 0 });
-      let csvData: any = null;
+    /**
+     * Check if CSV cache is valid and load data accordingly
+     */
+    private async loadData(): Promise<void> {
+        if (this.dataLoading) return;
+        this.dataLoading = true;
 
-      // Check if we should use IndexedDB or CSV files - be more defensive
-      if (IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
-        this.loadingService.updateProgress({ phase: 'Checking cache...', percentage: 5 });
+        console.log('🚀 Starting data loading process...');
+        const startTime = Date.now();
 
         try {
-          // Check cache validity - no timeout, let it complete naturally during database initialization
-          const isCacheValid = await this.indexedDBService.isCSVCacheValid();
+            this.loadingService.updateProgress({ isLoading: true, phase: 'Initializing...', percentage: 0 });
+            let csvData: any = null;
 
-          if (isCacheValid) {
-            console.log('✅ Cache validation passed - using cached data');
-            this.loadingService.updateProgress({ phase: 'Loading from cache...', percentage: 15 });
+            // Check if we should use IndexedDB or CSV files - be more defensive
+            if (IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
+                this.loadingService.updateProgress({ phase: 'Checking cache...', percentage: 5 });
 
-            // Add more detailed progress during cache loading
-            this.loadingService.updateProgress({ phase: 'Reading cached data from IndexedDB...', percentage: 25 });
-            csvData = await this.indexedDBService.loadCSVDataCache((phase: string, percentage: number) => {
-              this.loadingService.updateProgress({ phase, percentage });
-            });
-            this.loadingService.updateProgress({ phase: 'Cache data loaded successfully', percentage: 85 });
-          } else {
-            console.log('❌ Cache validation failed - loading from CSV files');
-            this.loadingService.updateProgress({ phase: 'Cache invalid, loading CSV files...', percentage: 12 });
-            csvData = await this.loadFromCSVFilesWithProgress();
+                try {
+                    // Check cache validity - no timeout, let it complete naturally during database initialization
+                    const isCacheValid = await this.indexedDBService.isCSVCacheValid();
 
-            // Try to save to IndexedDB cache if possible
-            if (csvData && IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
-              try {
-                await this.saveToIndexedDB(csvData);
-              } catch (saveError) {
-                console.warn('Failed to save to cache after CSV load:', saveError);
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('IndexedDB operation failed, falling back to CSV files:', error);
-          this.loadingService.updateProgress({ phase: 'Cache error, loading CSV files...', percentage: 12 });
-          csvData = await this.loadFromCSVFilesWithProgress();
-        }
-      } else {
-        // IndexedDB not supported or disabled
-        console.log('IndexedDB not available, loading from CSV files');
-        this.loadingService.updateProgress({ phase: 'Loading CSV files...', percentage: 12 });
-        csvData = await this.loadFromCSVFilesWithProgress();
-      }
+                    if (isCacheValid) {
+                        console.log('✅ Cache validation passed - using cached data');
+                        this.loadingService.updateProgress({ phase: 'Loading from cache...', percentage: 15 });
 
-      // Load data into memory
-      this.loadingService.updateProgress({ phase: 'Organizing data structures...', percentage: 92 });
-      this.loadDataIntoMemory(csvData);
+                        // Add more detailed progress during cache loading
+                        this.loadingService.updateProgress({ phase: 'Reading cached data from IndexedDB...', percentage: 25 });
+                        csvData = await this.indexedDBService.loadCSVDataCache((phase: string, percentage: number) => {
+                            this.loadingService.updateProgress({ phase, percentage });
+                        });
+                        this.loadingService.updateProgress({ phase: 'Cache data loaded successfully', percentage: 85 });
+                    } else {
+                        console.log('❌ Cache validation failed - loading from CSV files');
+                        this.loadingService.updateProgress({ phase: 'Cache invalid, loading CSV files...', percentage: 12 });
+                        csvData = await this.loadFromCSVFilesWithProgress();
 
-      this.loadingService.updateProgress({ phase: 'Building search indexes...', percentage: 96 });
-      this.initializeCache();
-
-      this.loadingService.updateProgress({ phase: 'Completed!', percentage: 100 });
-      this.dataLoaded.next(true);
-      this.dataLoading = false;
-
-      // Hide loading overlay after a brief delay to show completion
-      setTimeout(() => {
-        this.loadingService.hideLoading();
-      }, 1000);
-
-    } catch (error) {
-      console.error('Error loading data:', error);
-      this.loadingService.hideLoading();
-      this.dataLoaded.next(true);
-      this.dataLoading = false;
-    }
-  }
-
-  /**
-   * Load CSV files with progress tracking
-   */
-  private async loadFromCSVFilesWithProgress(): Promise<any> {
-    // First, load the manifest to see which files are split
-    this.loadingService.updateProgress({ phase: 'Loading manifest...', percentage: 20 });
-
-    let manifest: CSVManifest;
-    try {
-      const manifestText = await this.http.get('assets/data/manifest.json', { responseType: 'text' }).toPromise();
-      manifest = JSON.parse(manifestText || '{}');
-    } catch (error) {
-      console.warn('No manifest file found, assuming single files for all CSVs');
-      // Default manifest if file doesn't exist
-      manifest = {
-        inventories: 1,
-        inventory_parts: 1,
-        inventory_minifigs: 1,
-        inventory_sets: 1,
-        parts: 1,
-        colors: 1,
-        part_categories: 1,
-        part_relationships: 1,
-        elements: 1,
-        minifigs: 1,
-        sets: 1,
-        themes: 1
-      };
-    }
-
-    this.loadingService.updateProgress({ phase: 'Preparing file requests...', percentage: 22 });
-
-    const fileConfigs = [
-      { key: 'inventories', baseName: 'inventories' },
-      { key: 'inventoryParts', baseName: 'inventory_parts' },
-      { key: 'inventoryMinifigs', baseName: 'inventory_minifigs' },
-      { key: 'inventorySets', baseName: 'inventory_sets' },
-      { key: 'parts', baseName: 'parts' },
-      { key: 'colors', baseName: 'colors' },
-      { key: 'partCategories', baseName: 'part_categories' },
-      { key: 'partRelationships', baseName: 'part_relationships' },
-      { key: 'elements', baseName: 'elements' },
-      { key: 'minifigs', baseName: 'minifigs' },
-      { key: 'sets', baseName: 'sets' },
-      { key: 'themes', baseName: 'themes' }
-    ];
-
-    // Count total files to download for progress tracking
-    let totalFiles = 0;
-    fileConfigs.forEach(({ baseName }) => {
-      totalFiles += manifest[baseName] || 1;
-    });
-
-    this.loadingService.updateProgress({
-      phase: `Downloading ${totalFiles} CSV files...`,
-      percentage: 25,
-      current: 0,
-      total: totalFiles
-    });
-
-    // Download files with progress tracking
-    const results: any[] = [];
-    let downloadedFiles = 0;
-
-    for (const { key, baseName } of fileConfigs) {
-      const partCount = manifest[baseName] || 1;
-
-      if (partCount === 1) {
-        // Single file
-        const url = `assets/data/${baseName}.csv`;
-
-        try {
-          const csv = await this.http.get(url, { responseType: 'text' }).pipe(
-            timeout(key === 'inventoryParts' ? 120000 : 60000)
-          ).toPromise();
-
-          results.push({ key, csv, part: 1, totalParts: 1 });
-          downloadedFiles++;
-
-          const downloadProgress = Math.round(25 + (downloadedFiles / totalFiles) * 20); // 25-45% for downloads
-          this.loadingService.updateProgress({
-            phase: `Downloaded ${baseName}.csv`,
-            percentage: downloadProgress,
-            current: downloadedFiles,
-            total: totalFiles
-          });
-
-        } catch (error) {
-          console.error(`Failed to download ${url}:`, error);
-          results.push({ key, csv: '', part: 1, totalParts: 1 });
-          downloadedFiles++;
-        }
-      } else {
-        // Multiple parts
-        for (let partNum = 1; partNum <= partCount; partNum++) {
-          const url = `assets/data/${baseName}_part_${partNum}.csv`;
-
-          try {
-            const csv = await this.http.get(url, { responseType: 'text' }).pipe(
-              timeout(60000)
-            ).toPromise();
-
-            results.push({ key, csv, part: partNum, totalParts: partCount });
-            downloadedFiles++;
-
-            const downloadProgress = Math.round(25 + (downloadedFiles / totalFiles) * 20); // 25-45% for downloads
-            this.loadingService.updateProgress({
-              phase: `Downloaded ${baseName}_part_${partNum}.csv`,
-              percentage: downloadProgress,
-              current: downloadedFiles,
-              total: totalFiles
-            });
-
-          } catch (error) {
-            console.error(`Failed to download ${url}:`, error);
-            results.push({ key, csv: '', part: partNum, totalParts: partCount });
-            downloadedFiles++;
-          }
-        }
-      }
-    }
-
-    this.loadingService.updateProgress({ phase: 'Processing CSV data...', percentage: 45 });
-
-    const csvData: any = {};
-
-    // Initialize arrays for each key
-    fileConfigs.forEach(({ key }) => {
-      csvData[key] = [];
-    });
-
-    // Group results by key and combine multiple parts
-    const groupedResults = new Map<string, any[]>();
-
-    results.forEach(result => {
-      if (result && result.csv) {
-        if (!groupedResults.has(result.key)) {
-          groupedResults.set(result.key, []);
-        }
-        groupedResults.get(result.key)!.push(result);
-      }
-    });
-
-    // Parse and combine CSV data with progress tracking
-    let processedDataTypes = 0;
-    const totalDataTypes = groupedResults.size;
-
-    for (const [key, parts] of groupedResults) {
-      try {
-        const parseProgress = Math.round(45 + ((processedDataTypes / totalDataTypes) * 5)); // 45-50% for parsing
-        this.loadingService.updateProgress({
-          phase: `Processing ${key}...`,
-          percentage: parseProgress,
-          current: processedDataTypes + 1,
-          total: totalDataTypes
-        });
-
-        if (parts.length === 1) {
-          // Single file
-          csvData[key] = this.parseCSV(parts[0].csv);
-          console.log(`Parsed ${key}: ${csvData[key].length} records`);
-        } else {
-          // Multiple parts - combine them
-          console.log(`Combining ${parts.length} parts for ${key}`);
-
-          // Sort parts by part number to ensure correct order
-          parts.sort((a, b) => a.part - b.part);
-
-          let combinedData: any[] = [];
-
-          for (let i = 0; i < parts.length; i++) {
-            const part = parts[i];
-            const partData = this.parseCSV(part.csv);
-
-            if (i === 0) {
-              // First part, include all data (create a copy to avoid reference issues)
-              combinedData = [...partData];
+                        // Try to save to IndexedDB cache if possible
+                        if (csvData && IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
+                            try {
+                                await this.saveToIndexedDB(csvData);
+                            } catch (saveError) {
+                                console.warn('Failed to save to cache after CSV load:', saveError);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('IndexedDB operation failed, falling back to CSV files:', error);
+                    this.loadingService.updateProgress({ phase: 'Cache error, loading CSV files...', percentage: 12 });
+                    csvData = await this.loadFromCSVFilesWithProgress();
+                }
             } else {
-              // Subsequent parts, append data using concat() to avoid stack overflow
-              combinedData = combinedData.concat(partData);
+                // IndexedDB not supported or disabled
+                console.log('IndexedDB not available, loading from CSV files');
+                this.loadingService.updateProgress({ phase: 'Loading CSV files...', percentage: 12 });
+                csvData = await this.loadFromCSVFilesWithProgress();
             }
 
-            // Update progress for large file processing
-            if (parts.length > 1) {
-              const partProgress = Math.round(45 + ((processedDataTypes / totalDataTypes) * 5) + ((i + 1) / parts.length) * (5 / totalDataTypes));
-              this.loadingService.updateProgress({
-                phase: `Processing ${key} part ${i + 1}/${parts.length}...`,
-                percentage: partProgress
-              });
-            }
+            // Load data into memory
+            this.loadingService.updateProgress({ phase: 'Organizing data structures...', percentage: 92 });
+            await this.loadDataIntoMemory(csvData);
 
-            // Clear the part data to free memory
-            partData.length = 0;
+            this.loadingService.updateProgress({ phase: 'Building search indexes...', percentage: 99.5 });
+            this.initializeCache();
 
-            // Give the browser a chance to garbage collect between large operations
-            if (i < parts.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 10));
-            }
-          }
+            const endTime = Date.now();
+            const duration = (endTime - startTime) / 1000;
+            console.log(`✅ Data loading completed in ${duration.toFixed(2)} seconds`);
 
-          csvData[key] = combinedData;
-          console.log(`Combined ${key}: ${combinedData.length} total records`);
+            this.loadingService.updateProgress({ phase: 'Ready! Data loading complete.', percentage: 100 });
+            this.dataLoaded.next(true);
+            this.dataLoading = false;
+
+            // Hide loading overlay after a brief delay to show completion
+            setTimeout(() => {
+                this.loadingService.hideLoading();
+            }, 1000);
+
+        } catch (error) {
+            console.error('Error loading data:', error);
+            this.loadingService.hideLoading();
+            this.dataLoaded.next(true);
+            this.dataLoading = false;
         }
-      } catch (error) {
-        console.error(`Error parsing ${key}:`, error);
-        csvData[key] = [];
-      }
-
-      processedDataTypes++;
     }
 
-    this.loadingService.updateProgress({ phase: 'CSV processing completed', percentage: 50 });
-    return csvData;
-  }
+    /**
+     * Load CSV files with progress tracking
+     */
+    private async loadFromCSVFilesWithProgress(): Promise<any> {
+        // First, load the manifest to see which files are split
+        this.loadingService.updateProgress({ phase: 'Loading manifest...', percentage: 20 });
 
-  /**
-   * Load parsed CSV data into memory stores
-   */
-  private loadDataIntoMemory(csvData: any): void {
-    this.inventories = csvData.inventories || [];
-    this.inventoryParts = csvData.inventoryParts || [];
-    this.inventoryMinifigs = csvData.inventoryMinifigs || [];
-    this.inventorySets = csvData.inventorySets || [];
-    this.parts = csvData.parts || [];
-    this.colors = csvData.colors || [];
-    this.partCategories = csvData.partCategories || [];
-    this.partRelationships = csvData.partRelationships || [];
-    this.elements = csvData.elements || [];
-    this.minifigs = csvData.minifigs || [];
-    this.sets = csvData.sets || [];
-    this.themes = csvData.themes || [];
-  }
-
-  /**
-   * Initialize in-memory caches for fast lookups
-   */
-  private initializeCache(): void {
-    if (this.cacheInitialized) return;
-
-    // Cache parts
-    this.loadingService.updateProgress({ phase: 'Indexing parts for quick lookup...', percentage: 96.5 });
-    this.parts.forEach(part => {
-      this.partsCache.set(part.part_num, part);
-    });
-
-    // Cache colors
-    this.loadingService.updateProgress({ phase: 'Indexing colors...', percentage: 97 });
-    this.colors.forEach(color => {
-      this.colorsCache.set(color.id, color);
-    });
-
-    // Cache elements
-    this.loadingService.updateProgress({ phase: 'Indexing elements and part-color combinations...', percentage: 97.5 });
-    this.elements.forEach(element => {
-      this.elementsCache.set(element.element_id, element);
-      // Also cache by part_num + color_id combination
-      this.elementsCache.set(`${element.part_num}_${element.color_id}`, element);
-    });
-
-    // Cache minifigs
-    this.loadingService.updateProgress({ phase: 'Indexing minifigures...', percentage: 98 });
-    this.minifigs.forEach(minifig => {
-      this.minifigsCache.set(minifig.fig_num, minifig);
-    });
-
-    // Cache inventory parts by inventory_id for O(1) lookups
-    this.loadingService.updateProgress({ phase: 'Building inventory parts index...', percentage: 98.5 });
-    this.inventoryParts.forEach(part => {
-        if (!this.inventoryPartsCache.has(part.inventory_id)) {
-          this.inventoryPartsCache.set(part.inventory_id, []);
+        let manifest: CSVManifest;
+        try {
+            const manifestText = await this.http.get('assets/data/manifest.json', { responseType: 'text' }).toPromise();
+            manifest = JSON.parse(manifestText || '{}');
+        } catch (error) {
+            console.warn('No manifest file found, assuming single files for all CSVs');
+            // Default manifest if file doesn't exist
+            manifest = {
+                inventories: 1,
+                inventory_parts: 1,
+                inventory_minifigs: 1,
+                inventory_sets: 1,
+                parts: 1,
+                colors: 1,
+                part_categories: 1,
+                part_relationships: 1,
+                elements: 1,
+                minifigs: 1,
+                sets: 1,
+                themes: 1
+            };
         }
-        this.inventoryPartsCache.get(part.inventory_id)!.push(part);
-      });
 
-    // Cache inventory minifigs by inventory_id for O(1) lookups
-    this.loadingService.updateProgress({ phase: 'Building inventory minifigures index...', percentage: 99 });
-    this.inventoryMinifigs.forEach(minifig => {
-      if (!this.inventoryMinifigsCache.has(minifig.inventory_id)) {
-        this.inventoryMinifigsCache.set(minifig.inventory_id, []);
-      }
-      this.inventoryMinifigsCache.get(minifig.inventory_id)!.push(minifig);
-    });
+        this.loadingService.updateProgress({ phase: 'Preparing file requests...', percentage: 22 });
 
-    this.loadingService.updateProgress({ phase: 'Finalizing indexes...', percentage: 99.5 });
-    this.cacheInitialized = true;
-  }
+        const fileConfigs = [
+            { key: 'inventories', baseName: 'inventories' },
+            { key: 'inventoryParts', baseName: 'inventory_parts' },
+            { key: 'inventoryMinifigs', baseName: 'inventory_minifigs' },
+            { key: 'inventorySets', baseName: 'inventory_sets' },
+            { key: 'parts', baseName: 'parts' },
+            { key: 'colors', baseName: 'colors' },
+            { key: 'partCategories', baseName: 'part_categories' },
+            { key: 'partSections', baseName: 'part_sections' },
+            { key: 'partCategoryToSection', baseName: 'part_category_to_section' },
+            { key: 'partRelationships', baseName: 'part_relationships' },
+            { key: 'elements', baseName: 'elements' },
+            { key: 'minifigs', baseName: 'minifigs' },
+            { key: 'sets', baseName: 'sets' },
+            { key: 'themes', baseName: 'themes' }
+        ];
 
-  /**
-   * Force refresh CSV data from files and update cache
-   */
-  async refreshCSVData(): Promise<boolean> {
-    try {
-      // Clear existing cache only if IndexedDB is supported
-      if (IndexedDBService.isSupported()) {
-        await this.indexedDBService.clearCSVCache();
-        // Reset session state after clearing to allow fresh caching
-        this.indexedDBService.resetSessionState();
-      }
-
-      // Reset data loaded state
-      this.dataLoaded.next(false);
-      this.cacheInitialized = false;
-      this.dataLoading = false;
-
-      // Clear in-memory caches
-      this.partsCache.clear();
-      this.colorsCache.clear();
-      this.elementsCache.clear();
-      this.minifigsCache.clear();
-      this.inventoryPartsCache.clear();
-      this.inventoryMinifigsCache.clear();
-
-      // Load fresh data
-      await this.loadData();
-
-      return true;
-    } catch (error) {
-      console.error('Error refreshing CSV data:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Parse CSV string into typed objects
-   */
-  private parseCSV<T>(csv: string): T[] {
-    // Normalize line endings - convert \r\n and \r to \n
-    const normalizedCsv = csv.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    const lines = normalizedCsv.split('\n');
-    if (lines.length < 2) return [];
-
-    // More aggressive header cleaning - remove all types of whitespace and control characters
-    const headers = this.parseCSVLine(lines[0]).map(h =>
-      h.trim()
-       .replace(/\r/g, '')
-       .replace(/\n/g, '')
-       .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove all control characters
-    );
-
-    const result: T[] = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-
-      try {
-        const values = this.parseCSVLine(line);
-        const obj: any = {};
-
-        headers.forEach((header, j) => {
-          const value = values[j]?.trim().replace(/\r/g, '').replace(/\n/g, '');
-          if (value === undefined || value === null || value === '') return;
-
-          if (value === 'true' || value === 'false' || value === 'True' || value === 'False') {
-            obj[header] = value.toLowerCase() === 'true';
-          } else if (!isNaN(Number(value)) && value !== '') {
-            obj[header] = Number(value);
-          } else {
-            obj[header] = value;
-          }
+        // Count total files to download for progress tracking
+        let totalFiles = 0;
+        fileConfigs.forEach(({ baseName }) => {
+            totalFiles += manifest[baseName] || 1;
         });
 
-        if (Object.keys(obj).length > 0) {
-          result.push(obj as T);
-        }
-      } catch (e) {
-        console.warn('Error parsing CSV line:', line, e);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Parse a single CSV line handling quoted values and commas
-   */
-  private parseCSVLine(line: string): string[] {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    let i = 0;
-
-    while (i < line.length) {
-      const char = line[i];
-      const nextChar = line[i + 1];
-
-      if (char === '"' && inQuotes && nextChar === '"') {
-        // Escaped quote
-          current += '"';
-        i += 2;
-      } else if (char === '"') {
-        // Toggle quote mode
-          inQuotes = !inQuotes;
-          i++;
-      } else if (char === ',' && !inQuotes) {
-        // Field separator
-        result.push(current.trim().replace(/\r/g, '')); // Trim each field value and remove \r
-        current = '';
-        i++;
-      } else {
-        // Regular character
-        current += char;
-        i++;
-      }
-    }
-
-    // Add final field (also trimmed and \r removed)
-    result.push(current.trim().replace(/\r/g, ''));
-    return result;
-  }
-
-  // === Public API Methods ===
-
-  /**
-   * Check if data is loaded and ready
-   */
-  isDataLoaded(): Observable<boolean> {
-    return this.dataLoaded.asObservable();
-  }
-
-  /**
-   * Get a specific set by set number and version
-   */
-  getSet(setNum: string, version: number = 1): Observable<Set | undefined> {
-    const set = this.sets.find(s => s.set_num === setNum);
-    if (set) {
-      const versionsForSet = this.inventories
-        .filter(inv => inv.set_num === setNum)
-        .map(inv => inv.version)
-        .sort((a, b) => a - b);
-
-      return of({
-        ...set,
-        versions: versionsForSet.length > 0 ? versionsForSet : [1]
-      });
-    }
-    return of(undefined);
-  }
-
-  /**
-   * Get inventory metadata for a set
-   */
-  getSetInventory(setNum: string, version: number = 1): Observable<Inventory | undefined> {
-    const inventory = this.inventories.find(inv =>
-      inv.set_num === setNum && inv.version === version
-    );
-    return of(inventory);
-  }
-
-  /**
-   * Get inventory parts by set number and version
-   */
-  getSetInventoryPartsBySetNum(setNum: string, version: number = 1): Observable<InventoryPart[]> {
-    return this.getSetInventory(setNum, version).pipe(
-      switchMap(inventory => {
-        if (!inventory) {
-          return of([]);
-        }
-        return this.getInventoryPartsFromCache(inventory.id);
-      })
-    );
-  }
-
-  /**
-   * Get inventory minifigs by set number and version
-   */
-  getSetInventoryMinifigsBySetNum(setNum: string, version: number = 1): Observable<InventoryMinifig[]> {
-    return this.getSetInventory(setNum, version).pipe(
-      switchMap(inventory => {
-        if (!inventory) {
-          return of([]);
-        }
-        return this.getInventoryMinifigsFromCache(inventory.id);
-      })
-    );
-  }
-
-  /**
-   * Get inventory parts from cache (O(1) lookup)
-   */
-  getInventoryPartsFromCache(inventoryId: number): Observable<InventoryPart[]> {
-    if (!this.cacheInitialized) {
-      // Wait for cache to be initialized
-      return this.dataLoaded.pipe(
-        take(1), // Only take the first emission
-        switchMap(() => {
-          // Double-check cache is initialized after data loaded
-    if (!this.cacheInitialized) {
-      this.initializeCache();
-    }
-          const parts = this.inventoryPartsCache.get(inventoryId) || [];
-      return of(parts);
-        })
-      );
-    }
-
-    const parts = this.inventoryPartsCache.get(inventoryId) || [];
-    return of(parts);
-  }
-
-  /**
-   * Get inventory minifigs from cache (O(1) lookup)
-   */
-  getInventoryMinifigsFromCache(inventoryId: number): Observable<InventoryMinifig[]> {
-    if (!this.cacheInitialized) {
-      // Wait for cache to be initialized
-      return this.dataLoaded.pipe(
-        take(1), // Only take the first emission
-        switchMap(() => {
-          // Double-check cache is initialized after data loaded
-    if (!this.cacheInitialized) {
-      this.initializeCache();
-          }
-          const minifigs = this.inventoryMinifigsCache.get(inventoryId) || [];
-          return of(minifigs);
-        })
-      );
-    }
-
-    const minifigs = this.inventoryMinifigsCache.get(inventoryId) || [];
-    return of(minifigs);
-  }
-
-  /**
-   * Get sets with pagination
-   */
-  getSetsPaginated(page: number = 1, pageSize: number = 24, searchTerm?: string, yearFilter?: number): Observable<{sets: Set[], totalCount: number, hasNext: boolean}> {
-    if (!this.cacheInitialized) {
-    return this.dataLoaded.pipe(
-        switchMap(() => this.getSetsPaginatedInternal(page, pageSize, searchTerm, yearFilter))
-      );
-        }
-
-    return this.getSetsPaginatedInternal(page, pageSize, searchTerm, yearFilter);
-            }
-
-  private getSetsPaginatedInternal(page: number, pageSize: number, searchTerm?: string, yearFilter?: number): Observable<{sets: Set[], totalCount: number, hasNext: boolean}> {
-                // Create a map of set_num to versions for efficient lookup
-                const setVersionsMap = new Map<string, number[]>();
-
-    this.inventories.forEach(inv => {
-                  if (!setVersionsMap.has(inv.set_num)) {
-                    setVersionsMap.set(inv.set_num, []);
-                  }
-                  setVersionsMap.get(inv.set_num)!.push(inv.version);
-                });
-
-                // Sort versions for each set
-                setVersionsMap.forEach((versions, setNum) => {
-                  setVersionsMap.set(setNum, versions.sort((a, b) => a - b));
-                });
-
-                // Map partial sets to full sets with versions
-    let setsWithVersions = this.sets.map(partialSet => ({
-                  ...partialSet,
-                  versions: setVersionsMap.get(partialSet.set_num) || [1]
-                }));
-
-                // Apply filters
-                if (searchTerm && searchTerm.trim()) {
-                  const search = searchTerm.toLowerCase();
-                  setsWithVersions = setsWithVersions.filter(set =>
-                    set.name.toLowerCase().includes(search) ||
-                    set.set_num.toLowerCase().includes(search)
-                  );
-                }
-
-                if (yearFilter) {
-                  setsWithVersions = setsWithVersions.filter(set => set.year === yearFilter);
-                }
-
-                // Apply pagination
-                const totalCount = setsWithVersions.length;
-                const startIndex = (page - 1) * pageSize;
-                const endIndex = startIndex + pageSize;
-                const paginatedSets = setsWithVersions.slice(startIndex, endIndex);
-                const hasNext = endIndex < totalCount;
-
-    return of({
-                  sets: paginatedSets,
-                  totalCount,
-                  hasNext
-    });
-  }
-
-  // === Getter methods for current data ===
-
-  getCurrentParts(): Part[] {
-    return this.parts;
-  }
-
-  getCurrentColors(): Color[] {
-    return this.colors;
-  }
-
-  getCurrentMinifigs(): Minifig[] {
-    return this.minifigs;
-  }
-
-  getCurrentElements(): Element[] {
-    return this.elements;
-  }
-
-  getCurrentSets(): PartialSet[] {
-    return this.sets;
-  }
-
-  getCurrentInventories(): Inventory[] {
-    return this.inventories;
-  }
-
-  getCurrentInventoryParts(): InventoryPart[] {
-    return this.inventoryParts;
-  }
-
-  getCurrentThemes(): Theme[] {
-    return this.themes;
-  }
-
-  // === Legacy methods for compatibility ===
-
-  getPartsByNumbers(partNumbers: string[]): Observable<Part[]> {
-    const parts = partNumbers
-      .map(partNum => this.partsCache.get(partNum))
-      .filter(part => part !== undefined) as Part[];
-    return of(parts);
-  }
-
-  getColorsByIds(colorIds: number[]): Observable<Color[]> {
-    const colors = colorIds
-      .map(colorId => this.colorsCache.get(colorId))
-      .filter(color => color !== undefined) as Color[];
-    return of(colors);
-  }
-
-  getElementsByIds(elementIds: string[]): Observable<Element[]> {
-    const elements = elementIds
-      .map(elementId => this.elementsCache.get(elementId))
-      .filter(element => element !== undefined) as Element[];
-    return of(elements);
-  }
-
-  getMinifigsByNumbers(figNumbers: string[]): Observable<Minifig[]> {
-    const minifigs = figNumbers
-      .map(figNum => this.minifigsCache.get(figNum))
-      .filter(minifig => minifig !== undefined) as Minifig[];
-    return of(minifigs);
-  }
-
-  getSetsFromCSV(): Observable<Set[]> {
-    return this.getSetsPaginated(1, 999999).pipe(
-      map(result => result.sets)
-    );
-  }
-
-  getSetInventoryPartsFromCSV(inventoryId: number): Observable<InventoryPart[]> {
-    return this.getInventoryPartsFromCache(inventoryId);
-  }
-
-  getSetInventoryMinifigsFromCSV(inventoryId: number): Observable<InventoryMinifig[]> {
-    return this.getInventoryMinifigsFromCache(inventoryId);
-  }
-
-  getPartCategoriesByIds(categoryIds: number[]): Observable<PartCategory[]> {
-    const categories = this.partCategories.filter(category => categoryIds.includes(category.id));
-    return of(categories);
-  }
-
-  getThemesByIds(themeIds: number[]): Observable<Theme[]> {
-    const themes = this.themes.filter(theme => themeIds.includes(theme.id));
-    return of(themes);
-  }
-
-  /**
-   * Get CSV cache information
-   */
-  async getCSVCacheInfo(): Promise<{ exists: boolean; timestamp?: number; age?: number; isValid?: boolean }> {
-    try {
-      // Check if IndexedDB is available and not disabled
-      if (!IndexedDBService.isSupported()) {
-        return { exists: false };
-      }
-
-      return await this.indexedDBService.getCSVCacheInfo();
-    } catch (error) {
-      console.warn('Failed to get CSV cache info:', error);
-      return { exists: false };
-    }
-  }
-
-  /**
-   * Get current data statistics
-   */
-  getCurrentDataStats(): any {
-    return {
-      inventories: this.inventories.length,
-      inventoryParts: this.inventoryParts.length,
-      inventoryMinifigs: this.inventoryMinifigs.length,
-      inventorySets: this.inventorySets.length,
-      parts: this.parts.length,
-      colors: this.colors.length,
-      partCategories: this.partCategories.length,
-      partRelationships: this.partRelationships.length,
-      elements: this.elements.length,
-      minifigs: this.minifigs.length,
-      sets: this.sets.length,
-      themes: this.themes.length
-    };
-  }
-
-  /**
-   * Helper method to calculate total number of records across all data arrays
-   */
-  private getTotalRecords(data: any): number {
-    let total = 0;
-    const arrays = ['inventories', 'inventoryParts', 'inventoryMinifigs', 'inventorySets', 'parts', 'colors', 'partCategories', 'partRelationships', 'elements', 'minifigs', 'sets', 'themes'];
-
-    arrays.forEach(arrayName => {
-      if (Array.isArray(data[arrayName])) {
-        total += data[arrayName].length;
-      }
-    });
-
-    return total;
-  }
-
-  /**
-   * Save CSV data to IndexedDB cache
-   */
-  private async saveToIndexedDB(csvData: any): Promise<void> {
-    try {
-      // Check if IndexedDB is available and not disabled
-      if (!IndexedDBService.isSupported() || this.indexedDBService.isDisabledForSession()) {
-        console.warn('IndexedDB not available for CSV caching');
-        return;
-      }
-
-      // Add timestamp and version to the data
-      const dataWithMetadata = {
-        ...csvData,
-        timestamp: Date.now(),
-        version: this.CSV_VERSION
-      };
-
-      await this.indexedDBService.saveCSVDataCache(dataWithMetadata, (progress) => {
-        // More descriptive caching messages
-        const phase = progress.phase || `Caching ${Math.round((progress.current / progress.total) * 100)}% complete...`;
         this.loadingService.updateProgress({
-          phase: phase,
-          percentage: Math.round(85 + (progress.percentage * 0.15)), // 85-100%
-          current: progress.current,
-          total: progress.total
+            phase: `Downloading ${totalFiles} CSV files...`,
+            percentage: 25,
+            current: 0,
+            total: totalFiles
         });
-      });
 
-      console.log('Successfully cached CSV data to IndexedDB');
-    } catch (error) {
-      console.error('Failed to cache CSV data to IndexedDB:', error);
-      // Don't throw - caching failure shouldn't break the app
+        // Download files with progress tracking
+        const results: any[] = [];
+        let downloadedFiles = 0;
+
+        for (const { key, baseName } of fileConfigs) {
+            const partCount = manifest[baseName] || 1;
+
+            if (partCount === 1) {
+                // Single file - only check custom_data for section-related files
+                const isCustomDataFile = baseName === 'part_sections' || baseName === 'part_category_to_section';
+                const url = isCustomDataFile ? `assets/custom_data/${baseName}.csv` : `assets/data/${baseName}.csv`;
+
+                try {
+                    const csv = await this.http.get(url, { responseType: 'text' }).pipe(
+                        timeout(key === 'inventoryParts' ? 120000 : 60000)
+                    ).toPromise();
+
+                    results.push({ key, csv, part: 1, totalParts: 1 });
+                    downloadedFiles++;
+
+                    const downloadProgress = Math.round(25 + (downloadedFiles / totalFiles) * 20); // 25-45% for downloads
+                    this.loadingService.updateProgress({
+                        phase: `Downloaded ${baseName}.csv${isCustomDataFile ? ' from custom_data' : ''}`,
+                        percentage: downloadProgress,
+                        current: downloadedFiles,
+                        total: totalFiles
+                    });
+
+                } catch (error) {
+                    console.error(`Failed to download ${url}:`, error);
+                    results.push({ key, csv: '', part: 1, totalParts: 1 });
+                    downloadedFiles++;
+                }
+            } else {
+                // Multiple parts
+                for (let partNum = 1; partNum <= partCount; partNum++) {
+                    const url = `assets/data/${baseName}_part_${partNum}.csv`;
+
+                    try {
+                        const csv = await this.http.get(url, { responseType: 'text' }).pipe(
+                            timeout(60000)
+                        ).toPromise();
+
+                        results.push({ key, csv, part: partNum, totalParts: partCount });
+                        downloadedFiles++;
+
+                        const downloadProgress = Math.round(25 + (downloadedFiles / totalFiles) * 20); // 25-45% for downloads
+                        this.loadingService.updateProgress({
+                            phase: `Downloaded ${baseName}_part_${partNum}.csv`,
+                            percentage: downloadProgress,
+                            current: downloadedFiles,
+                            total: totalFiles
+                        });
+
+                    } catch (error) {
+                        console.error(`Failed to download ${url}:`, error);
+                        results.push({ key, csv: '', part: partNum, totalParts: partCount });
+                        downloadedFiles++;
+                    }
+                }
+            }
+        }
+
+        this.loadingService.updateProgress({ phase: 'Processing CSV data...', percentage: 45 });
+
+        const csvData: any = {};
+
+        // Initialize arrays for each key
+        fileConfigs.forEach(({ key }) => {
+            csvData[key] = [];
+        });
+
+        // Group results by key and combine multiple parts
+        const groupedResults = new Map<string, any[]>();
+
+        results.forEach(result => {
+            if (result && result.csv) {
+                if (!groupedResults.has(result.key)) {
+                    groupedResults.set(result.key, []);
+                }
+                groupedResults.get(result.key)!.push(result);
+            }
+        });
+
+        // Parse and combine CSV data with progress tracking
+        let processedDataTypes = 0;
+        const totalDataTypes = groupedResults.size;
+
+        for (const [key, parts] of groupedResults) {
+            try {
+                const parseProgress = Math.round(45 + ((processedDataTypes / totalDataTypes) * 5)); // 45-50% for parsing
+                this.loadingService.updateProgress({
+                    phase: `Processing ${key}...`,
+                    percentage: parseProgress,
+                    current: processedDataTypes + 1,
+                    total: totalDataTypes
+                });
+
+                if (parts.length === 1) {
+                    // Single file
+                    csvData[key] = this.parseCSV(parts[0].csv);
+                    console.log(`Parsed ${key}: ${csvData[key].length} records`);
+                } else {
+                    // Multiple parts - combine them
+                    console.log(`Combining ${parts.length} parts for ${key}`);
+
+                    // Sort parts by part number to ensure correct order
+                    parts.sort((a, b) => a.part - b.part);
+
+                    let combinedData: any[] = [];
+
+                    for (let i = 0; i < parts.length; i++) {
+                        const part = parts[i];
+                        const partData = this.parseCSV(part.csv);
+
+                        if (i === 0) {
+                            // First part, include all data (create a copy to avoid reference issues)
+                            combinedData = [...partData];
+                        } else {
+                            // Subsequent parts, append data using concat() to avoid stack overflow
+                            combinedData = combinedData.concat(partData);
+                        }
+
+                        // Update progress for large file processing
+                        if (parts.length > 1) {
+                            const partProgress = Math.round(45 + ((processedDataTypes / totalDataTypes) * 5) + ((i + 1) / parts.length) * (5 / totalDataTypes));
+                            this.loadingService.updateProgress({
+                                phase: `Processing ${key} part ${i + 1}/${parts.length}...`,
+                                percentage: partProgress
+                            });
+                        }
+
+                        // Clear the part data to free memory
+                        partData.length = 0;
+
+                        // Give the browser a chance to garbage collect between large operations
+                        if (i < parts.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 10));
+                        }
+                    }
+
+                    csvData[key] = combinedData;
+                    console.log(`Combined ${key}: ${combinedData.length} total records`);
+                }
+            } catch (error) {
+                console.error(`Error parsing ${key}:`, error);
+                csvData[key] = [];
+            }
+
+            processedDataTypes++;
+        }
+
+        this.loadingService.updateProgress({ phase: 'CSV processing completed', percentage: 50 });
+        return csvData;
     }
-  }
+
+    /**
+     * Load parsed CSV data into memory stores
+     */
+    private async loadDataIntoMemory(csvData: any): Promise<void> {
+        this.inventories = csvData.inventories || [];
+        this.inventoryParts = csvData.inventoryParts || [];
+        this.inventoryMinifigs = csvData.inventoryMinifigs || [];
+        this.inventorySets = csvData.inventorySets || [];
+        this.parts = csvData.parts || [];
+        this.colors = csvData.colors || [];
+        this.partCategories = csvData.partCategories || [];
+        this.partSections = csvData.partSections || [];
+        this.partCategoryToSection = csvData.partCategoryToSection || [];
+        this.partRelationships = csvData.partRelationships || [];
+        this.elements = csvData.elements || [];
+        this.minifigs = csvData.minifigs || [];
+        this.sets = csvData.sets || [];
+        this.themes = csvData.themes || [];
+        this.partPopularityScores = csvData.partPopularityScores || [];
+
+        // Calculate popularity scores if not already cached
+        if (this.partPopularityScores.length === 0) {
+            await this.calculatePopularityScores();
+        }
+    }
+
+    /**
+     * Calculate popularity scores for all parts (optimized for performance)
+     */
+    private async calculatePopularityScores(): Promise<void> {
+        const startTime = Date.now();
+        const uniqueParts = new globalThis.Set(this.parts.map(p => p.part_num));
+        const totalParts = uniqueParts.size;
+
+        this.loadingService.updateProgress({ phase: `Preparing data structures for ${totalParts} parts...`, percentage: 95 });
+
+        const popularityScores: PartPopularityScore[] = [];
+
+        // OPTIMIZATION 1: Pre-build all lookup maps efficiently
+
+        // Direct inventory_id to year mapping (single lookup instead of double)
+        const inventoryIdToYearMap = new Map<number, number>();
+        this.inventories.forEach(inv => {
+            const set = this.sets.find(s => s.set_num === inv.set_num);
+            if (set) {
+                inventoryIdToYearMap.set(inv.id, set.year);
+            }
+        });
+
+        // OPTIMIZATION 2: Pre-group inventory parts by part_num (eliminates O(n*m) filtering)
+        const partToInventoryPartsMap = new Map<string, InventoryPart[]>();
+        this.inventoryParts.forEach(part => {
+            if (!partToInventoryPartsMap.has(part.part_num)) {
+                partToInventoryPartsMap.set(part.part_num, []);
+            }
+            partToInventoryPartsMap.get(part.part_num)!.push(part);
+        });
+
+        // OPTIMIZATION 3: Pre-calculate color counts efficiently
+        const partColorsMap = new Map<string, number>();
+        this.elements.forEach(element => {
+            const current = partColorsMap.get(element.part_num) || 0;
+            partColorsMap.set(element.part_num, current + 1);
+        });
+
+        let processedParts = 0;
+        const partsArray = Array.from(uniqueParts);
+
+        // OPTIMIZATION 4: Process in batches for better performance monitoring
+        const batchSize = 1000;
+        for (let batchStart = 0; batchStart < partsArray.length; batchStart += batchSize) {
+            const batchEnd = Math.min(batchStart + batchSize, partsArray.length);
+            const batch = partsArray.slice(batchStart, batchEnd);
+
+            for (const partNum of batch) {
+                // Factor 1: Set usage frequency and total quantity (O(1) lookup now)
+                const partInventoryEntries = partToInventoryPartsMap.get(partNum) || [];
+                const setUsageCount = partInventoryEntries.length;
+                const totalQuantityUsed = partInventoryEntries.reduce((sum, part) => sum + part.quantity, 0);
+
+                // Factor 2: Years of existence (O(1) lookup now)
+                const years = new globalThis.Set<number>();
+                partInventoryEntries.forEach(part => {
+                    const year = inventoryIdToYearMap.get(part.inventory_id);
+                    if (year) {
+                        years.add(year);
+                    }
+                });
+
+                const uniqueYears = Array.from(years);
+                const yearRange = uniqueYears.length > 0 ?
+                    (Math.max(...uniqueYears) - Math.min(...uniqueYears) + 1) : 0;
+
+                // Factor 3: Number of available colors (O(1) lookup now)
+                const colorCount = partColorsMap.get(partNum) || 0;
+
+                // Calculate weighted score (prioritizing set usage)
+                const setUsageScore = (setUsageCount * 1000) + (totalQuantityUsed * 10);
+                const yearScore = yearRange * 50;
+                const colorScore = colorCount * 5;
+                const finalScore = setUsageScore + yearScore + colorScore;
+
+                popularityScores.push({
+                    part_num: partNum,
+                    score: finalScore,
+                    set_usage_count: setUsageCount,
+                    total_quantity_used: totalQuantityUsed,
+                    year_range: yearRange,
+                    color_count: colorCount
+                });
+
+                processedParts++;
+            }
+
+            // Update progress at end of each batch
+            const progressPercent = 95 + (processedParts / totalParts) * 4;
+            this.loadingService.updateProgress({
+                phase: `Calculating popularity scores: ${processedParts}/${totalParts} parts processed...`,
+                percentage: progressPercent
+            });
+
+            // Yield control after each batch to prevent blocking
+            if (batchStart + batchSize < partsArray.length) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        this.partPopularityScores = popularityScores;
+
+        this.loadingService.updateProgress({ phase: 'Popularity calculation completed', percentage: 99 });
+    }
+
+    /**
+     * Initialize in-memory caches for fast lookups
+     */
+    private initializeCache(): void {
+        if (this.cacheInitialized) return;
+
+        // Cache parts
+        this.loadingService.updateProgress({ phase: 'Indexing parts for quick lookup...', percentage: 96.5 });
+        this.parts.forEach(part => {
+            this.partsCache.set(part.part_num, part);
+        });
+
+        // Cache colors
+        this.loadingService.updateProgress({ phase: 'Indexing colors...', percentage: 97 });
+        this.colors.forEach(color => {
+            this.colorsCache.set(color.id, color);
+        });
+
+        // Cache elements
+        this.loadingService.updateProgress({ phase: 'Indexing elements and part-color combinations...', percentage: 97.5 });
+        this.elements.forEach(element => {
+            this.elementsCache.set(element.element_id, element);
+            // Also cache by part_num + color_id combination
+            this.elementsCache.set(`${element.part_num}_${element.color_id}`, element);
+        });
+
+        // Cache minifigs
+        this.loadingService.updateProgress({ phase: 'Indexing minifigures...', percentage: 98 });
+        this.minifigs.forEach(minifig => {
+            this.minifigsCache.set(minifig.fig_num, minifig);
+        });
+
+        // Cache inventory parts by inventory_id for O(1) lookups
+        this.loadingService.updateProgress({ phase: 'Building inventory parts index...', percentage: 98.5 });
+        this.inventoryParts.forEach(part => {
+            if (!this.inventoryPartsCache.has(part.inventory_id)) {
+                this.inventoryPartsCache.set(part.inventory_id, []);
+            }
+            this.inventoryPartsCache.get(part.inventory_id)!.push(part);
+        });
+
+        // Cache inventory minifigs by inventory_id for O(1) lookups
+        this.loadingService.updateProgress({ phase: 'Building inventory minifigures index...', percentage: 99 });
+        this.inventoryMinifigs.forEach(minifig => {
+            if (!this.inventoryMinifigsCache.has(minifig.inventory_id)) {
+                this.inventoryMinifigsCache.set(minifig.inventory_id, []);
+            }
+            this.inventoryMinifigsCache.get(minifig.inventory_id)!.push(minifig);
+        });
+
+        // Build optimized inventory parts image lookup maps
+        this.buildInventoryPartsImageMaps();
+
+        this.loadingService.updateProgress({ phase: 'Finalizing indexes...', percentage: 99.5 });
+        this.cacheInitialized = true;
+    }
+
+    /**
+     * Force refresh CSV data from files and update cache
+     */
+    async refreshCSVData(): Promise<boolean> {
+        try {
+            // Clear existing cache only if IndexedDB is supported
+            if (IndexedDBService.isSupported()) {
+                await this.indexedDBService.clearCSVCache();
+                // Reset session state after clearing to allow fresh caching
+                this.indexedDBService.resetSessionState();
+            }
+
+            // Reset data loaded state
+            this.dataLoaded.next(false);
+            this.cacheInitialized = false;
+            this.dataLoading = false;
+
+            // Clear in-memory caches
+            this.partsCache.clear();
+            this.colorsCache.clear();
+            this.elementsCache.clear();
+            this.minifigsCache.clear();
+            this.inventoryPartsCache.clear();
+            this.inventoryMinifigsCache.clear();
+            this.inventoryPartsImageMap.clear();
+            this.inventoryPartsAnyColorMap.clear();
+
+            // Load fresh data
+            await this.loadData();
+
+            return true;
+        } catch (error) {
+            console.error('Error refreshing CSV data:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Parse CSV string into typed objects
+     */
+    private parseCSV<T>(csv: string): T[] {
+        // Normalize line endings - convert \r\n and \r to \n
+        const normalizedCsv = csv.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const lines = normalizedCsv.split('\n');
+        if (lines.length < 2) return [];
+
+        // More aggressive header cleaning - remove all types of whitespace and control characters
+        const headers = this.parseCSVLine(lines[0]).map(h =>
+            h.trim()
+                .replace(/\r/g, '')
+                .replace(/\n/g, '')
+                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove all control characters
+        );
+
+        const result: T[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            try {
+                const values = this.parseCSVLine(line);
+                const obj: any = {};
+
+                headers.forEach((header, j) => {
+                    const value = values[j]?.trim().replace(/\r/g, '').replace(/\n/g, '');
+                    if (value === undefined || value === null || value === '') return;
+
+                    // Define fields that should always remain as strings (identifiers)
+                    const stringFields = new Set([
+                        'part_num', 'set_num', 'element_id', 'fig_num',
+                        'child_part_num', 'parent_part_num', 'rgb'
+                    ]);
+
+                    if (value === 'true' || value === 'false' || value === 'True' || value === 'False') {
+                        obj[header] = value.toLowerCase() === 'true';
+                    } else if (stringFields.has(header)) {
+                        // Keep identifier fields as strings
+                        obj[header] = value;
+                    } else if (!isNaN(Number(value)) && value !== '') {
+                        obj[header] = Number(value);
+                    } else {
+                        obj[header] = value;
+                    }
+                });
+
+                if (Object.keys(obj).length > 0) {
+                    result.push(obj as T);
+                }
+            } catch (e) {
+                console.warn('Error parsing CSV line:', line, e);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Parse a single CSV line handling quoted values and commas
+     */
+    private parseCSVLine(line: string): string[] {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        let i = 0;
+
+        while (i < line.length) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+
+            if (char === '"' && inQuotes && nextChar === '"') {
+                // Escaped quote
+                current += '"';
+                i += 2;
+            } else if (char === '"') {
+                // Toggle quote mode
+                inQuotes = !inQuotes;
+                i++;
+            } else if (char === ',' && !inQuotes) {
+                // Field separator
+                result.push(current.trim().replace(/\r/g, '')); // Trim each field value and remove \r
+                current = '';
+                i++;
+            } else {
+                // Regular character
+                current += char;
+                i++;
+            }
+        }
+
+        // Add final field (also trimmed and \r removed)
+        result.push(current.trim().replace(/\r/g, ''));
+        return result;
+    }
+
+    /**
+     * Build optimized inventory parts image lookup maps
+     */
+    private buildInventoryPartsImageMaps(): void {
+        this.inventoryPartsImageMap.clear();
+        this.inventoryPartsAnyColorMap.clear();
+
+        for (const part of this.inventoryParts) {
+            if (part.img_url && part.img_url.trim() !== '') {
+                // Map for exact part_num + color_id lookup
+                const exactKey = `${part.part_num}_${part.color_id}`;
+                if (!this.inventoryPartsImageMap.has(exactKey)) {
+                    this.inventoryPartsImageMap.set(exactKey, part.img_url);
+                }
+
+                // Map for any color lookup (first occurrence wins)
+                if (!this.inventoryPartsAnyColorMap.has(part.part_num)) {
+                    this.inventoryPartsAnyColorMap.set(part.part_num, part.img_url);
+                }
+            }
+        }
+    }
+
+    /**
+     * Fast fallback image URL lookup using optimized maps
+     */
+    getFallbackImageFromInventoryPartsFast(partNum: string, colorId: number): string | null {
+        if (!this.cacheInitialized) {
+            this.initializeCache();
+        }
+
+        // First try: Exact match
+        const exactKey = `${partNum}_${colorId}`;
+        const exactMatch = this.inventoryPartsImageMap.get(exactKey);
+        if (exactMatch) {
+            return exactMatch;
+        }
+
+        // Second try: Any color match
+        const anyColorMatch = this.inventoryPartsAnyColorMap.get(partNum);
+        if (anyColorMatch) {
+            return anyColorMatch;
+        }
+
+        return null;
+    }
+
+    // === Public API Methods ===
+
+    /**
+     * Check if data is loaded and ready
+     */
+    isDataLoaded(): Observable<boolean> {
+        return this.dataLoaded.asObservable();
+    }
+
+    /**
+     * Get a specific set by set number and version
+     */
+    getSet(setNum: string, version: number = 1): Observable<Set | undefined> {
+        const set = this.sets.find(s => s.set_num === setNum);
+        if (set) {
+            const versionsForSet = this.inventories
+                .filter(inv => inv.set_num === setNum)
+                .map(inv => inv.version)
+                .sort((a, b) => a - b);
+
+            return of({
+                ...set,
+                versions: versionsForSet.length > 0 ? versionsForSet : [1]
+            });
+        }
+        return of(undefined);
+    }
+
+    /**
+     * Get inventory metadata for a set
+     */
+    getSetInventory(setNum: string, version: number = 1): Observable<Inventory | undefined> {
+        const inventory = this.inventories.find(inv =>
+            inv.set_num === setNum && inv.version === version
+        );
+        return of(inventory);
+    }
+
+    /**
+     * Get inventory parts by set number and version
+     */
+    getSetInventoryPartsBySetNum(setNum: string, version: number = 1): Observable<InventoryPart[]> {
+        return this.getSetInventory(setNum, version).pipe(
+            switchMap(inventory => {
+                if (!inventory) {
+                    return of([]);
+                }
+                return this.getInventoryPartsFromCache(inventory.id);
+            })
+        );
+    }
+
+    /**
+     * Get inventory minifigs by set number and version
+     */
+    getSetInventoryMinifigsBySetNum(setNum: string, version: number = 1): Observable<InventoryMinifig[]> {
+        return this.getSetInventory(setNum, version).pipe(
+            switchMap(inventory => {
+                if (!inventory) {
+                    return of([]);
+                }
+                return this.getInventoryMinifigsFromCache(inventory.id);
+            })
+        );
+    }
+
+    /**
+     * Get inventory parts from cache (O(1) lookup)
+     */
+    getInventoryPartsFromCache(inventoryId: number): Observable<InventoryPart[]> {
+        if (!this.cacheInitialized) {
+            // Wait for cache to be initialized
+            return this.dataLoaded.pipe(
+                take(1), // Only take the first emission
+                switchMap(() => {
+                    // Double-check cache is initialized after data loaded
+                    if (!this.cacheInitialized) {
+                        this.initializeCache();
+                    }
+                    const parts = this.inventoryPartsCache.get(inventoryId) || [];
+                    return of(parts);
+                })
+            );
+        }
+
+        const parts = this.inventoryPartsCache.get(inventoryId) || [];
+        return of(parts);
+    }
+
+    /**
+     * Get inventory minifigs from cache (O(1) lookup)
+     */
+    getInventoryMinifigsFromCache(inventoryId: number): Observable<InventoryMinifig[]> {
+        if (!this.cacheInitialized) {
+            // Wait for cache to be initialized
+            return this.dataLoaded.pipe(
+                take(1), // Only take the first emission
+                switchMap(() => {
+                    // Double-check cache is initialized after data loaded
+                    if (!this.cacheInitialized) {
+                        this.initializeCache();
+                    }
+                    const minifigs = this.inventoryMinifigsCache.get(inventoryId) || [];
+                    return of(minifigs);
+                })
+            );
+        }
+
+        const minifigs = this.inventoryMinifigsCache.get(inventoryId) || [];
+        return of(minifigs);
+    }
+
+    /**
+     * Get sets with pagination
+     */
+    getSetsPaginated(page: number = 1, pageSize: number = 24, searchTerm?: string, yearFilter?: number): Observable<{ sets: Set[], totalCount: number, hasNext: boolean }> {
+        if (!this.cacheInitialized) {
+            return this.dataLoaded.pipe(
+                switchMap(() => this.getSetsPaginatedInternal(page, pageSize, searchTerm, yearFilter))
+            );
+        }
+
+        return this.getSetsPaginatedInternal(page, pageSize, searchTerm, yearFilter);
+    }
+
+    private getSetsPaginatedInternal(page: number, pageSize: number, searchTerm?: string, yearFilter?: number): Observable<{ sets: Set[], totalCount: number, hasNext: boolean }> {
+        // Create a map of set_num to versions for efficient lookup
+        const setVersionsMap = new Map<string, number[]>();
+
+        this.inventories.forEach(inv => {
+            if (!setVersionsMap.has(inv.set_num)) {
+                setVersionsMap.set(inv.set_num, []);
+            }
+            setVersionsMap.get(inv.set_num)!.push(inv.version);
+        });
+
+        // Sort versions for each set
+        setVersionsMap.forEach((versions, setNum) => {
+            setVersionsMap.set(setNum, versions.sort((a, b) => a - b));
+        });
+
+        // Map partial sets to full sets with versions
+        let setsWithVersions = this.sets.map(partialSet => ({
+            ...partialSet,
+            versions: setVersionsMap.get(partialSet.set_num) || [1]
+        }));
+
+        // Apply filters
+        if (searchTerm && searchTerm.trim()) {
+            const search = searchTerm.toLowerCase();
+            setsWithVersions = setsWithVersions.filter(set =>
+                set.name.toLowerCase().includes(search) ||
+                set.set_num.toLowerCase().includes(search)
+            );
+        }
+
+        if (yearFilter) {
+            setsWithVersions = setsWithVersions.filter(set => set.year === yearFilter);
+        }
+
+        // Apply pagination
+        const totalCount = setsWithVersions.length;
+        const startIndex = (page - 1) * pageSize;
+        const endIndex = startIndex + pageSize;
+        const paginatedSets = setsWithVersions.slice(startIndex, endIndex);
+        const hasNext = endIndex < totalCount;
+
+        return of({
+            sets: paginatedSets,
+            totalCount,
+            hasNext
+        });
+    }
+
+    // === Getter methods for current data ===
+
+    getCurrentParts(): Part[] {
+        return this.parts;
+    }
+
+    getCurrentColors(): Color[] {
+        return this.colors;
+    }
+
+    getCurrentPartCategories(): PartCategory[] {
+        return this.partCategories;
+    }
+
+    getCurrentPartSections(): PartSection[] {
+        return this.partSections;
+    }
+
+    getCurrentPartCategoryToSection(): PartCategoryToSection[] {
+        return this.partCategoryToSection;
+    }
+
+    getCurrentMinifigs(): Minifig[] {
+        return this.minifigs;
+    }
+
+    getCurrentElements(): Element[] {
+        return this.elements;
+    }
+
+    getCurrentSets(): PartialSet[] {
+        return this.sets;
+    }
+
+    getCurrentInventories(): Inventory[] {
+        return this.inventories;
+    }
+
+    getCurrentInventoryParts(): InventoryPart[] {
+        return this.inventoryParts;
+    }
+
+    getCurrentThemes(): Theme[] {
+        return this.themes;
+    }
+
+    getCurrentPartPopularityScores(): PartPopularityScore[] {
+        return this.partPopularityScores;
+    }
+
+    /**
+     * Get popularity score for a specific part
+     */
+    getPartPopularityScore(partNum: string): number {
+        const scoreEntry = this.partPopularityScores.find(score => score.part_num === partNum);
+        return scoreEntry ? scoreEntry.score : 0;
+    }
+
+    /**
+     * Get fallback image URL by searching inventory_parts data
+     * This method tries to find an alternative image URL for a part/color combination
+     * by looking through the inventory_parts data for the same part_num and color_id,
+     * and if that fails, tries any color of the same part_num
+     */
+    getFallbackImageFromInventoryParts(partNum: string, colorId: number): string | null {
+        if (!this.cacheInitialized) {
+            this.initializeCache();
+        }
+
+        // First try: Search for exact part_num and color_id combination with valid img_url
+        let matchingInventoryPart = this.inventoryParts.find(part =>
+            part.part_num === partNum &&
+            part.color_id === colorId &&
+            part.img_url &&
+            part.img_url.trim() !== ''
+        );
+
+        if (matchingInventoryPart && matchingInventoryPart.img_url) {
+            return matchingInventoryPart.img_url;
+        }
+
+        // Second try: Search for same part_num with ANY color_id that has valid img_url
+        matchingInventoryPart = this.inventoryParts.find(part =>
+            part.part_num === partNum &&
+            part.img_url &&
+            part.img_url.trim() !== ''
+        );
+
+        if (matchingInventoryPart && matchingInventoryPart.img_url) {
+            return matchingInventoryPart.img_url;
+        }
+
+        return null;
+    }
+
+    // === Legacy methods for compatibility ===
+
+    getPartsByNumbers(partNumbers: string[]): Observable<Part[]> {
+        const parts = partNumbers
+            .map(partNum => this.partsCache.get(partNum))
+            .filter(part => part !== undefined) as Part[];
+        return of(parts);
+    }
+
+    getColorsByIds(colorIds: number[]): Observable<Color[]> {
+        const colors = colorIds
+            .map(colorId => this.colorsCache.get(colorId))
+            .filter(color => color !== undefined) as Color[];
+        return of(colors);
+    }
+
+    getElementsByIds(elementIds: string[]): Observable<Element[]> {
+        const elements = elementIds
+            .map(elementId => this.elementsCache.get(elementId))
+            .filter(element => element !== undefined) as Element[];
+        return of(elements);
+    }
+
+    getMinifigsByNumbers(figNumbers: string[]): Observable<Minifig[]> {
+        const minifigs = figNumbers
+            .map(figNum => this.minifigsCache.get(figNum))
+            .filter(minifig => minifig !== undefined) as Minifig[];
+        return of(minifigs);
+    }
+
+    getSetsFromCSV(): Observable<Set[]> {
+        return this.getSetsPaginated(1, 999999).pipe(
+            map(result => result.sets)
+        );
+    }
+
+    getSetInventoryPartsFromCSV(inventoryId: number): Observable<InventoryPart[]> {
+        return this.getInventoryPartsFromCache(inventoryId);
+    }
+
+    getSetInventoryMinifigsFromCSV(inventoryId: number): Observable<InventoryMinifig[]> {
+        return this.getInventoryMinifigsFromCache(inventoryId);
+    }
+
+    getPartCategoriesByIds(categoryIds: number[]): Observable<PartCategory[]> {
+        const categories = this.partCategories.filter(category => categoryIds.includes(category.id));
+        return of(categories);
+    }
+
+    getThemesByIds(themeIds: number[]): Observable<Theme[]> {
+        const themes = this.themes.filter(theme => themeIds.includes(theme.id));
+        return of(themes);
+    }
+
+    /**
+     * Get CSV cache information
+     */
+    async getCSVCacheInfo(): Promise<{ exists: boolean; timestamp?: number; age?: number; isValid?: boolean }> {
+        try {
+            // Check if IndexedDB is available and not disabled
+            if (!IndexedDBService.isSupported()) {
+                return { exists: false };
+            }
+
+            return await this.indexedDBService.getCSVCacheInfo();
+        } catch (error) {
+            console.warn('Failed to get CSV cache info:', error);
+            return { exists: false };
+        }
+    }
+
+    /**
+     * Get current data statistics
+     */
+    getCurrentDataStats(): any {
+        return {
+            inventories: this.inventories.length,
+            inventoryParts: this.inventoryParts.length,
+            inventoryMinifigs: this.inventoryMinifigs.length,
+            inventorySets: this.inventorySets.length,
+            parts: this.parts.length,
+            colors: this.colors.length,
+            partCategories: this.partCategories.length,
+            partSections: this.partSections.length,
+            partCategoryToSection: this.partCategoryToSection.length,
+            partRelationships: this.partRelationships.length,
+            elements: this.elements.length,
+            minifigs: this.minifigs.length,
+            sets: this.sets.length,
+            themes: this.themes.length
+        };
+    }
+
+    /**
+     * Helper method to calculate total number of records across all data arrays
+     */
+    private getTotalRecords(data: any): number {
+        let total = 0;
+        const arrays = ['inventories', 'inventoryParts', 'inventoryMinifigs', 'inventorySets', 'parts', 'colors', 'partCategories', 'partSections', 'partCategoryToSection', 'partRelationships', 'elements', 'minifigs', 'sets', 'themes'];
+
+        arrays.forEach(arrayName => {
+            if (Array.isArray(data[arrayName])) {
+                total += data[arrayName].length;
+            }
+        });
+
+        return total;
+    }
+
+    /**
+     * Save CSV data to IndexedDB cache
+     */
+    private async saveToIndexedDB(csvData: any): Promise<void> {
+        try {
+            // Check if IndexedDB is available and not disabled
+            if (!IndexedDBService.isSupported() || this.indexedDBService.isDisabledForSession()) {
+                console.warn('IndexedDB not available for CSV caching');
+                return;
+            }
+
+            // Add timestamp and version to the data
+            const dataWithMetadata = {
+                ...csvData,
+                timestamp: Date.now(),
+                version: this.CSV_VERSION
+            };
+
+            await this.indexedDBService.saveCSVDataCache(dataWithMetadata, (progress) => {
+                // More descriptive caching messages
+                const phase = progress.phase || `Caching ${Math.round((progress.current / progress.total) * 100)}% complete...`;
+                this.loadingService.updateProgress({
+                    phase: phase,
+                    percentage: Math.round(85 + (progress.percentage * 0.15)), // 85-100%
+                    current: progress.current,
+                    total: progress.total
+                });
+            });
+
+            console.log('Successfully cached CSV data to IndexedDB');
+        } catch (error) {
+            console.error('Failed to cache CSV data to IndexedDB:', error);
+            // Don't throw - caching failure shouldn't break the app
+        }
+    }
 }
