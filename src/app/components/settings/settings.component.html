@@ -98,6 +98,145 @@
                 </div>
             </div>
 
+            <!-- My Colors Section -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">My Colors</h2>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-gray-600 text-sm mb-4">
+                        Select the colors you have in your inventory. When viewing loose parts, only these colors will
+                        be shown by default.
+                    </p>
+
+                    <!-- Apply to Sets Option -->
+                    <div class="mb-6">
+                        <label class="flex items-center space-x-3">
+                            <input type="checkbox" [checked]="myColorsSettings.applyToSets"
+                                (change)="updateApplyToSets($any($event.target).checked)"
+                                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                            <span class="text-sm font-medium text-gray-700">
+                                Also apply color filtering to sets inventory
+                            </span>
+                        </label>
+                        <p class="text-xs text-gray-500 ml-7 mt-1">
+                            When enabled, parts in sets will also be combined by color aliases
+                        </p>
+                    </div>
+
+                    <!-- Color Selection Controls -->
+                    <div class="mb-4 flex flex-wrap gap-2">
+                        <button (click)="selectAllColors()"
+                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition">
+                            Select All
+                        </button>
+                        <button (click)="clearAllColors()"
+                            class="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition">
+                            Clear All
+                        </button>
+                        <button (click)="saveMyColors()"
+                            class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition">
+                            Save My Colors
+                        </button>
+                        <span class="text-sm text-gray-600 self-center ml-2">
+                            {{ selectedColors.size }} colors selected
+                        </span>
+                    </div>
+
+                    <!-- Color Grid -->
+                    <div class="border rounded-lg p-4 bg-white max-h-96 overflow-y-auto">
+                        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                            <div *ngFor="let color of getSortedColors()"
+                                class="flex flex-col items-center p-3 rounded cursor-pointer hover:bg-gray-100 transition"
+                                (click)="toggleColorSelection(color.id)"
+                                [class.bg-blue-100]="selectedColors.has(color.id)"
+                                [class.ring-2]="selectedColors.has(color.id)"
+                                [class.ring-blue-500]="selectedColors.has(color.id)">
+                                <div class="w-10 h-10 rounded border-2 border-gray-300 mb-2"
+                                    [style.background-color]="'#' + color.rgb" [class.opacity-50]="color.is_trans">
+                                </div>
+                                <span class="text-xs text-center leading-tight font-medium" [title]="color.name">
+                                    {{ color.name }}
+                                </span>
+                                <span *ngIf="isColorInAlias(color.id)" class="text-xs text-blue-600 mt-1">
+                                    ({{ getAliasForColor(color.id)?.name }})
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Color Grid Layout Button -->
+                    <div class="mt-6 pt-6 border-t">
+                        <h3 class="font-medium text-gray-800 mb-2">Visual Color Layout</h3>
+                        <p class="text-sm text-gray-600 mb-3">
+                            Create a visual 16x16 grid layout of your colors for printing or reference.
+                        </p>
+                        <a routerLink="/color-grid"
+                            class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z">
+                                </path>
+                            </svg>
+                            Open Color Grid Layout
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Color Aliases Section -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Color Aliases</h2>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-gray-600 text-sm mb-4">
+                        Combine similar colors into groups. Parts in any of the aliased colors will be treated as the
+                        same color.
+                    </p>
+
+                    <!-- Add New Alias Button -->
+                    <div class="mb-4">
+                        <button (click)="openNewAliasModal()"
+                            class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                            <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 4v16m8-8H4"></path>
+                            </svg>
+                            Create Color Alias
+                        </button>
+                    </div>
+
+                    <!-- Existing Aliases -->
+                    <div *ngIf="myColorsSettings.colorAliases.length > 0" class="space-y-3">
+                        <div *ngFor="let alias of myColorsSettings.colorAliases" class="bg-white border rounded-lg p-4">
+                            <div class="flex justify-between items-start mb-2">
+                                <h3 class="font-medium text-gray-800">{{ alias.name }}</h3>
+                                <div class="flex space-x-2">
+                                    <button (click)="openEditAliasModal(alias)"
+                                        class="text-blue-600 hover:text-blue-800 text-sm">
+                                        Edit
+                                    </button>
+                                    <button (click)="deleteAlias(alias.id)"
+                                        class="text-red-600 hover:text-red-800 text-sm">
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <div *ngFor="let colorId of alias.colorIds"
+                                    class="flex items-center space-x-1 bg-gray-100 rounded px-2 py-1">
+                                    <div class="w-4 h-4 rounded border border-gray-300"
+                                        [style.background-color]="'#' + getColorById(colorId)?.rgb"></div>
+                                    <span class="text-xs">{{ getColorName(colorId) }}</span>
+                                    <span *ngIf="colorId === alias.primaryColorId"
+                                        class="text-xs font-semibold text-blue-600">(Primary)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div *ngIf="myColorsSettings.colorAliases.length === 0" class="text-center py-8 text-gray-500">
+                        No color aliases created yet
+                    </div>
+                </div>
+            </div>
+
             <!-- Data Management -->
             <div class="mb-8">
                 <h2 class="text-xl font-semibold text-gray-700 mb-4">Data Management</h2>
@@ -516,6 +655,95 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Color Alias Modal -->
+<div *ngIf="showColorAliasModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    (click)="closeAliasModal()">
+    <div class="bg-white rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto"
+        (click)="$event.stopPropagation()">
+        <h3 class="text-lg font-semibold mb-4">
+            {{ editingAlias ? 'Edit' : 'Create' }} Color Alias
+        </h3>
+
+        <!-- Alias Name -->
+        <div class="mb-4">
+            <label for="alias-name" class="block text-sm font-medium text-gray-700 mb-1">
+                Alias Name *
+            </label>
+            <input type="text" id="alias-name" [(ngModel)]="aliasName" placeholder="e.g., Light Grays"
+                class="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <!-- Color Selection -->
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                Select Colors (minimum 2) *
+            </label>
+            <p class="text-xs text-gray-600 mb-3">
+                Click colors to add them to this alias. The primary color will be used to represent all colors in this
+                group.
+            </p>
+
+            <div class="border rounded-lg p-4 bg-gray-50 max-h-64 overflow-y-auto">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    <div *ngFor="let color of allColors"
+                        class="flex flex-col items-center p-3 rounded cursor-pointer hover:bg-white transition"
+                        (click)="toggleAliasColorSelection(color.id)"
+                        [class.bg-blue-100]="aliasSelectedColors.has(color.id)"
+                        [class.ring-2]="aliasSelectedColors.has(color.id)"
+                        [class.ring-blue-500]="aliasSelectedColors.has(color.id)">
+                        <div class="w-10 h-10 rounded border-2 border-gray-300 mb-2"
+                            [style.background-color]="'#' + color.rgb" [class.opacity-50]="color.is_trans"></div>
+                        <span class="text-xs text-center leading-tight font-medium" [title]="color.name">
+                            {{ color.name }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Selected Colors & Primary Selection -->
+        <div class="mb-4" *ngIf="aliasSelectedColors.size > 0">
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                Selected Colors ({{ aliasSelectedColors.size }})
+            </label>
+            <p class="text-xs text-gray-600 mb-3">
+                Click a color to make it the primary color for this alias.
+            </p>
+
+            <div class="border rounded-lg p-4 bg-white">
+                <div class="flex flex-wrap gap-2">
+                    <div *ngFor="let colorId of aliasSelectedColors"
+                        class="flex items-center space-x-1 px-3 py-2 rounded cursor-pointer transition"
+                        [class.bg-blue-600]="colorId === aliasPrimaryColorId"
+                        [class.text-white]="colorId === aliasPrimaryColorId"
+                        [class.bg-gray-100]="colorId !== aliasPrimaryColorId" (click)="setPrimaryColor(colorId)">
+                        <div class="w-4 h-4 rounded border" [class.border-white]="colorId === aliasPrimaryColorId"
+                            [class.border-gray-300]="colorId !== aliasPrimaryColorId"
+                            [style.background-color]="'#' + getColorById(colorId)?.rgb"></div>
+                        <span class="text-sm">{{ getColorName(colorId) }}</span>
+                        <span *ngIf="colorId === aliasPrimaryColorId" class="text-xs font-semibold ml-1">
+                            (Primary)
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="flex justify-end space-x-3 mt-6">
+            <button (click)="closeAliasModal()"
+                class="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50 transition">
+                Cancel
+            </button>
+            <button (click)="saveAlias()"
+                [disabled]="!aliasName.trim() || aliasSelectedColors.size < 2 || !aliasPrimaryColorId"
+                class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                {{ editingAlias ? 'Update' : 'Create' }} Alias
+            </button>
         </div>
     </div>
 </div>

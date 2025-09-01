@@ -176,3 +176,27 @@ This application manages inventories of modular building blocks using data from 
 - Chunk-based loading for massive datasets
 
 This context helps AI assistants understand the business domain and make appropriate suggestions for features, optimizations, and user workflows.
+
+### Service Architecture Updates (2025)
+
+#### Background Loading and Caching Services
+- **BackgroundLoadingService**: Manages background IndexedDB population with footer progress indicator
+  - Shows progress at bottom of screen while app remains usable
+  - Auto-dismisses when complete
+  - User can dismiss manually to hide progress
+
+- **ImageService**: Simplified for performance - direct CDN URLs only
+  - No caching due to CORS restrictions on Rebrickable CDN
+  - Returns direct CDN URLs without timestamps or processing
+  - Provides fallback to placeholder images
+  - Optimized for fast synchronous URL generation
+
+- **ImageDownloaderService**: Disabled due to CORS restrictions
+  - Cannot download images from Rebrickable CDN
+  - Service exists but is not initialized to prevent performance issues
+
+#### Data Loading Strategy
+1. **Initial Load**: CSV data loaded into memory for immediate use
+2. **Background Cache**: IndexedDB population happens in background
+3. **Images**: Load directly from CDN on demand (no preloading due to CORS)
+4. **Progressive Enhancement**: App works immediately with in-memory data

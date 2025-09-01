@@ -5,7 +5,9 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { GlobalSettings, Set, UserInventory } from '../../models/models';
+import { ColorGroupingService } from '../../services/color-grouping.service';
 import { DataService } from '../../services/data.service';
+import { ImageService } from '../../services/image.service';
 import { StorageService } from '../../services/storage.service';
 
 @Component({
@@ -48,6 +50,8 @@ export class SetsComponent implements OnInit {
 
     constructor(
         private dataService: DataService,
+        private colorGroupingService: ColorGroupingService,
+        private imageService: ImageService,
         private storageService: StorageService,
         private cdr: ChangeDetectorRef
     ) { }
@@ -256,7 +260,12 @@ export class SetsComponent implements OnInit {
      * This matches the logic used in the inventory detail component
      */
     private getPartStorageKey(partNum: string, colorId: number, isSpare: boolean): string {
-        const baseKey = `${partNum}_${colorId}`;
+        // Apply color aliasing if My Colors is enabled for sets
+        const effectiveColorId = this.colorGroupingService.shouldApplyToSets()
+            ? this.colorGroupingService.getEffectiveColorId(colorId)
+            : colorId;
+
+        const baseKey = `${partNum}_${effectiveColorId}`;
         return isSpare ? `spare_${baseKey}` : baseKey;
     }
 
@@ -268,20 +277,20 @@ export class SetsComponent implements OnInit {
 
     getSetImageUrl(setNum: string): string {
         const set = this.paginatedSets.find(s => s.set_num === setNum);
-        return set?.img_url || '';
+        return this.imageService.getSetImageUrl(set?.img_url);
     }
 
     getAllInventorySetImageUrls(): void {
         for (const inventory of this.userInventories) {
             this.dataService.getSet(inventory.set_num).subscribe({
                 next: (set) => {
-                    this.allInventorySetImageUrls[inventory.set_num] = set?.img_url || '';
+                    this.allInventorySetImageUrls[inventory.set_num] = this.imageService.getSetImageUrl(set?.img_url);
                     // tell angular to update the template
                     this.cdr.detectChanges();
                 },
                 error: (error) => {
                     console.error('Error getting set image URL:', error);
-                    this.allInventorySetImageUrls[inventory.set_num] = '';
+                    this.allInventorySetImageUrls[inventory.set_num] = this.imageService.getSetImageUrl(undefined);
                 }
             });
         }
@@ -328,17 +337,18 @@ export class SetsComponent implements OnInit {
             }
         }
 
-        // If we have part information, try the inventory_parts fallback
+        // For parts in sets, use part-specific error handling
         if (partNum && colorId !== undefined) {
-            const fallbackUrl = this.dataService.getFallbackImageFromInventoryPartsFast(partNum, colorId);
-            if (fallbackUrl && fallbackUrl !== currentSrc) {
-                img.src = fallbackUrl;
-                return;
-            }
+            this.imageService.handleImageError(
+                img,
+                partNum,
+                colorId,
+                (pNum, cId) => this.dataService.getFallbackImageFromInventoryPartsFast(pNum, cId)
+            );
+        } else {
+            // For set images, use general error handling
+            this.imageService.handleGeneralImageError(img);
         }
-
-        // Final fallback to placeholder
-        img.src = 'assets/images/placeholder.svg';
     }
 
     openImageOverlay(imageUrl: string, altText: string): void {
@@ -365,13 +375,7 @@ export class SetsComponent implements OnInit {
     }
 
     getLargeImageUrl(imageUrl: string): string {
-        // For higher resolution, try to get a larger version of the image
-        // This assumes the image URL can be modified to get a larger version
-        if (imageUrl.includes('https://cdn.rebrickable.com/media/') && !imageUrl.includes('https://cdn.rebrickable.com/media/thumbs/')) {
-            // replace https://cdn.rebrickable.com/media/ with https://cdn.rebrickable.com/media/thumbs/ and append a timestamp
-            return imageUrl.replace('https://cdn.rebrickable.com/media/', 'https://cdn.rebrickable.com/media/thumbs/') + '/800x800p.jpg?' + Date.now();
-        }
-        return imageUrl;
+        return this.imageService.getLargeImageUrl(imageUrl);
     }
 
     /**
@@ -380,49 +384,6 @@ export class SetsComponent implements OnInit {
      */
     onOverlayImageError(event: Event): void {
         const img = event.target as HTMLImageElement;
-        const currentSrc = img.src;
-
-        // If we're already showing the placeholder, don't try again
-        if (currentSrc.includes('placeholder.svg')) {
-            return;
-        }
-
-        // For sets component, we primarily deal with set images
-        // Try to extract part information if available (for future part image support)
-        let partNum: string | undefined;
-        let colorId: number | undefined;
-
-        // Try to extract from the original overlay URL pattern if it's an element-based URL
-        const originalUrl = this.overlayImageUrl;
-        if (originalUrl.includes('elements/')) {
-            const elementUrlMatch = originalUrl.match(/elements\/(\d+)\.jpg/);
-            if (elementUrlMatch) {
-                const elementId = elementUrlMatch[1];
-                // We don't have direct access to elements data here, but this structure is ready for enhancement
-                // For now, skip to placeholder
-            }
-        }
-
-        // If we have part information, try the fast inventory_parts fallback
-        if (partNum && colorId !== undefined) {
-            const fallbackUrl = this.dataService.getFallbackImageFromInventoryPartsFast(partNum, colorId);
-            if (fallbackUrl && fallbackUrl !== currentSrc) {
-                // For large image, try to get a higher resolution version if possible
-                let largeImageUrl = fallbackUrl;
-                if (fallbackUrl.includes('https://cdn.rebrickable.com/media/') && !fallbackUrl.includes('/800x800p.jpg')) {
-                    if (fallbackUrl.includes('https://cdn.rebrickable.com/media/thumbs/')) {
-                        largeImageUrl = fallbackUrl.replace('.jpg', '/800x800p.jpg');
-                    } else {
-                        largeImageUrl = fallbackUrl.replace('https://cdn.rebrickable.com/media/', 'https://cdn.rebrickable.com/media/thumbs/') + '/800x800p.jpg';
-                    }
-                }
-
-                img.src = largeImageUrl;
-                return;
-            }
-        }
-
-        // Final fallback to placeholder
-        img.src = 'assets/images/placeholder.svg';
+        this.imageService.handleGeneralImageError(img);
     }
 }

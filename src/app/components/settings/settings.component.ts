@@ -1,7 +1,9 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { GlobalSettings } from '../../models/models';
+import { RouterModule } from '@angular/router';
+import { Color, ColorAlias, GlobalSettings, MyColorsSettings } from '../../models/models';
+import { ColorGroupingService } from '../../services/color-grouping.service';
 import { DataService } from '../../services/data.service';
 import { ExportService } from '../../services/export.service';
 import { IndexedDBService } from '../../services/indexeddb.service';
@@ -10,7 +12,7 @@ import { StorageService } from '../../services/storage.service';
 @Component({
     selector: 'app-settings',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, RouterModule],
     templateUrl: './settings.component.html',
     styleUrls: ['./settings.component.css']
 })
@@ -21,6 +23,24 @@ export class SettingsComponent implements OnInit {
         imagePreviewSize: '1x',
         includeSparePartsInProgress: true
     };
+
+    // My Colors settings
+    myColorsSettings: MyColorsSettings = {
+        enabledColorIds: [],
+        colorAliases: [],
+        showHiddenColors: true,
+        applyToSets: false
+    };
+    allColors: Color[] = [];
+    selectedColors: Set<number> = new Set();
+
+    // Color alias modal
+    showColorAliasModal = false;
+    editingAlias: ColorAlias | null = null;
+    aliasName = '';
+    aliasSelectedColors: Set<number> = new Set();
+    aliasPrimaryColorId: number | null = null;
+
     storageInfo: { used: number; quota: number; type: string; status: string } | null = null;
     isUsingIndexedDB = false;
     isIndexedDBDisabled = false;
@@ -44,6 +64,7 @@ export class SettingsComponent implements OnInit {
 
     constructor(
         private storageService: StorageService,
+        private colorGroupingService: ColorGroupingService,
         private exportService: ExportService,
         private dataService: DataService,
         private indexedDBService: IndexedDBService
@@ -82,6 +103,15 @@ export class SettingsComponent implements OnInit {
     async ngOnInit(): Promise<void> {
         this.storageService.getState().subscribe(state => {
             this.globalSettings = { ...state.globalSettings };
+            this.myColorsSettings = { ...this.storageService.getMyColorsSettings() };
+            this.selectedColors = new Set(this.myColorsSettings.enabledColorIds);
+        });
+
+        // Load all colors
+        this.dataService.isDataLoaded().subscribe(loaded => {
+            if (loaded) {
+                this.allColors = this.dataService.getCurrentColors();
+            }
         });
 
         // Load storage information
@@ -466,5 +496,183 @@ export class SettingsComponent implements OnInit {
         setTimeout(() => {
             this.message = null;
         }, 5000);
+    }
+
+    // My Colors Methods
+    toggleColorSelection(colorId: number): void {
+        if (this.selectedColors.has(colorId)) {
+            this.selectedColors.delete(colorId);
+        } else {
+            this.selectedColors.add(colorId);
+        }
+    }
+
+    saveMyColors(): void {
+        this.myColorsSettings.enabledColorIds = Array.from(this.selectedColors);
+        this.storageService.updateMyColorsSettings({
+            enabledColorIds: this.myColorsSettings.enabledColorIds
+        });
+        this.showMessage('My Colors preferences saved successfully.', 'success');
+    }
+
+    selectAllColors(): void {
+        this.allColors.forEach(color => this.selectedColors.add(color.id));
+    }
+
+    clearAllColors(): void {
+        this.selectedColors.clear();
+    }
+
+    updateApplyToSets(apply: boolean): void {
+        this.myColorsSettings.applyToSets = apply;
+        this.storageService.updateMyColorsSettings({ applyToSets: apply });
+        this.showMessage(
+            apply
+                ? 'Color filtering will now apply to sets inventory'
+                : 'Color filtering will only apply to loose parts',
+            'success'
+        );
+    }
+
+    // Color Alias Methods
+    openNewAliasModal(): void {
+        this.editingAlias = null;
+        this.aliasName = '';
+        this.aliasSelectedColors.clear();
+        this.aliasPrimaryColorId = null;
+        this.showColorAliasModal = true;
+    }
+
+    openEditAliasModal(alias: ColorAlias): void {
+        this.editingAlias = alias;
+        this.aliasName = alias.name;
+        this.aliasSelectedColors = new Set(alias.colorIds);
+        this.aliasPrimaryColorId = alias.primaryColorId;
+        this.showColorAliasModal = true;
+    }
+
+    closeAliasModal(): void {
+        this.showColorAliasModal = false;
+        this.editingAlias = null;
+        this.aliasName = '';
+        this.aliasSelectedColors.clear();
+        this.aliasPrimaryColorId = null;
+    }
+
+    toggleAliasColorSelection(colorId: number): void {
+        if (this.aliasSelectedColors.has(colorId)) {
+            this.aliasSelectedColors.delete(colorId);
+            // If we removed the primary color, select a new one
+            if (colorId === this.aliasPrimaryColorId && this.aliasSelectedColors.size > 0) {
+                this.aliasPrimaryColorId = Array.from(this.aliasSelectedColors)[0];
+            }
+        } else {
+            this.aliasSelectedColors.add(colorId);
+            // If no primary color is selected, make this the primary
+            if (!this.aliasPrimaryColorId || !this.aliasSelectedColors.has(this.aliasPrimaryColorId)) {
+                this.aliasPrimaryColorId = colorId;
+            }
+        }
+    }
+
+    setPrimaryColor(colorId: number): void {
+        if (this.aliasSelectedColors.has(colorId)) {
+            this.aliasPrimaryColorId = colorId;
+        }
+    }
+
+    saveAlias(): void {
+        if (!this.aliasName.trim()) {
+            this.showMessage('Please enter a name for the color alias.', 'error');
+            return;
+        }
+
+        if (this.aliasSelectedColors.size < 2) {
+            this.showMessage('Please select at least 2 colors to create an alias.', 'error');
+            return;
+        }
+
+        if (!this.aliasPrimaryColorId || !this.aliasSelectedColors.has(this.aliasPrimaryColorId)) {
+            this.showMessage('Please select a primary color for this alias.', 'error');
+            return;
+        }
+
+        const alias: ColorAlias = {
+            id: this.editingAlias?.id || this.uuidv4(),
+            name: this.aliasName.trim(),
+            colorIds: Array.from(this.aliasSelectedColors),
+            primaryColorId: this.aliasPrimaryColorId,
+            dateCreated: this.editingAlias?.dateCreated || Date.now()
+        };
+
+        try {
+            this.storageService.addOrUpdateColorAlias(alias);
+            this.myColorsSettings = this.storageService.getMyColorsSettings();
+            this.closeAliasModal();
+            this.showMessage(
+                this.editingAlias ? 'Color alias updated successfully.' : 'Color alias created successfully.',
+                'success'
+            );
+        } catch (error) {
+            this.showMessage((error as Error).message, 'error');
+        }
+    }
+
+    deleteAlias(aliasId: string): void {
+        if (confirm('Are you sure you want to delete this color alias?')) {
+            this.storageService.removeColorAlias(aliasId);
+            this.myColorsSettings = this.storageService.getMyColorsSettings();
+            this.showMessage('Color alias deleted successfully.', 'success');
+        }
+    }
+
+    getColorById(colorId: number): Color | undefined {
+        return this.allColors.find(c => c.id === colorId);
+    }
+
+    getColorName(colorId: number): string {
+        const color = this.getColorById(colorId);
+        return color?.name || `Color ${colorId}`;
+    }
+
+    isColorInAlias(colorId: number): boolean {
+        return this.myColorsSettings.colorAliases.some(alias =>
+            alias.colorIds.includes(colorId)
+        );
+    }
+
+    getAliasForColor(colorId: number): ColorAlias | null {
+        return this.myColorsSettings.colorAliases.find(alias =>
+            alias.colorIds.includes(colorId)
+        ) || null;
+    }
+
+    getSortedColors(): Color[] {
+        return [...this.allColors].sort((a, b) => {
+            // Calculate popularity score based on num_parts and num_sets
+            // Weight parts more heavily than sets since parts represent actual usage frequency
+            const getPopularityScore = (color: Color): number => {
+                const parts = color.num_parts || 0;
+                const sets = color.num_sets || 0;
+                return (parts * 3) + (sets * 1); // Parts weighted 3x more than sets
+            };
+
+            const scoreA = getPopularityScore(a);
+            const scoreB = getPopularityScore(b);
+
+            // Sort by popularity (highest first), then by name alphabetically
+            if (scoreB !== scoreA) {
+                return scoreB - scoreA;
+            }
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    uuidv4(): string {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
     }
 }

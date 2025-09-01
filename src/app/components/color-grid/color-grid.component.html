@@ -1,0 +1,86 @@
+<div class="color-grid-container">
+    <div class="grid-header">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">My Colors Grid Layout</h2>
+        <p class="text-gray-600 mb-6">Create a visual layout of your colors on a 16x16 grid. Click and drag to paint
+            colors.</p>
+    </div>
+
+    <div class="grid-controls">
+        <!-- Color Palette -->
+        <div class="color-palette">
+            <h3 class="text-lg font-semibold mb-3">Select Color:</h3>
+            <div class="colors-list">
+                <div *ngFor="let color of availableColors; trackBy: trackByColorId" class="color-option"
+                    [class.selected]="isColorSelected(color.id)" (click)="selectColor(color.id)">
+                    <div class="color-swatch" [style.background-color]="'#' + color.rgb"
+                        [class.transparent]="color.is_trans"></div>
+                    <span class="color-name">{{ getColorName(color.id) }}</span>
+                </div>
+            </div>
+
+            <div class="mt-4 mb-4 border-t pt-4">
+                <h3 class="text-sm font-semibold mb-2">Background Fill:</h3>
+                <div class="flex gap-2">
+                    <button (click)="backgroundFill = 'white'" [class.active]="backgroundFill === 'white'"
+                        class="px-3 py-1 rounded text-sm">
+                        White
+                    </button>
+                    <button (click)="backgroundFill = 'black'" [class.active]="backgroundFill === 'black'"
+                        class="px-3 py-1 rounded text-sm">
+                        Black
+                    </button>
+                    <button (click)="backgroundFill = 'none'" [class.active]="backgroundFill === 'none'"
+                        class="px-3 py-1 rounded text-sm">
+                        None
+                    </button>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button (click)="fillEmpty()" [disabled]="!selectedColorId" class="btn btn-secondary">
+                    Fill Empty
+                </button>
+                <button (click)="clearGrid()" class="btn btn-danger">
+                    Clear Grid
+                </button>
+                <button (click)="showGrid = !showGrid" class="btn btn-secondary">
+                    {{ showGrid ? 'Hide' : 'Show' }} Grid
+                </button>
+                <button (click)="print()" class="btn btn-primary">
+                    Print
+                </button>
+            </div>
+        </div>
+
+        <!-- Grid -->
+        <div class="grid-wrapper">
+            <div class="grid-container" [class.show-grid]="showGrid" (mouseleave)="onMouseUp()">
+                <!-- Grid cells -->
+                <div class="grid-row" *ngFor="let row of grid; let rowIndex = index; trackBy: trackByRow">
+                    <div class="grid-cell" *ngFor="let cell of row; let colIndex = index; trackBy: trackByCol"
+                        [style.background-color]="getCellColor(rowIndex, colIndex)"
+                        [class.show-border]="shouldShowCellBorder(rowIndex, colIndex)"
+                        (mousedown)="onCellMouseDown(rowIndex, colIndex)"
+                        (mouseenter)="onCellMouseEnter(rowIndex, colIndex)" (mouseup)="onMouseUp()"></div>
+                </div>
+
+                <!-- Region labels -->
+                <div class="region-labels">
+                    <ng-container *ngFor="let region of regions; trackBy: trackByRegion">
+                        <!-- Main region text - always try this first -->
+                        <div class="region-label" [ngStyle]="getRegionTextStyle(region)"
+                            *ngIf="shouldShowText(region) && !needsOverflowText(region)">
+                            {{ getColorName(region.colorId) }}
+                        </div>
+
+                        <!-- Overflow text only as last resort for extremely long names -->
+                        <div class="region-label-overflow" [ngStyle]="getRegionTextOverflowStyle(region)"
+                            *ngIf="needsOverflowText(region) && getRegionTextOverflowStyle(region)">
+                            {{ getColorName(region.colorId) }}
+                        </div>
+                    </ng-container>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

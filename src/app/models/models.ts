@@ -36,6 +36,8 @@ export interface Color {
     name: string;
     rgb: string;
     is_trans: boolean;
+    num_parts?: number;
+    num_sets?: number;
 }
 
 export interface PartCategory {
@@ -176,9 +178,47 @@ export interface AppState {
     loosePartsInventories: LoosePartsInventory[];
     activeLoosePartsInventoryId: string | null;
     globalSettings: GlobalSettings;
+    myColorsSettings?: MyColorsSettings; // Optional for backward compatibility
 }
 
 // CSV file splitting manifest
 export interface CSVManifest {
     [fileName: string]: number; // fileName -> number of parts (1 if not split)
+}
+
+// My Colors interfaces
+export interface ColorAlias {
+    id: string; // Unique identifier for this alias group
+    name: string; // User-defined name for this color group (e.g., "Light Grays")
+    primaryColorId: number; // The main color ID that will represent all colors in this group
+    colorIds: number[]; // All color IDs in this group (including primary)
+    dateCreated: number;
+}
+
+export interface MyColorsSettings {
+    enabledColorIds: number[]; // List of color IDs the user wants to see by default
+    colorAliases: ColorAlias[]; // List of color alias groups
+    showHiddenColors: boolean; // Whether to show the "expand hidden colors" option
+    applyToSets: boolean; // Whether to apply color filtering to sets (not just loose parts)
+    colorGrid?: ColorGrid; // Optional 16x16 grid layout for colors
+}
+
+// Color Grid interfaces
+export interface ColorGrid {
+    cells: (number | null)[][]; // 16x16 array, null for empty, color ID for filled
+    backgroundFill: 'white' | 'black' | 'none'; // What to use for empty cells when printing
+    lastUpdated: number;
+}
+
+export interface ColorRegion {
+    colorId: number;
+    cells: { row: number; col: number }[];
+    bounds: {
+        minRow: number;
+        maxRow: number;
+        minCol: number;
+        maxCol: number;
+        centerRow: number;
+        centerCol: number;
+    };
 }

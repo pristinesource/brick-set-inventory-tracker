@@ -17,7 +17,11 @@ import {
     UndoAction,
     UserInventory
 } from '../../models/models';
+import { ColorGroupingService } from '../../services/color-grouping.service';
 import { DataService } from '../../services/data.service';
+import { ExportService } from '../../services/export.service';
+import { ImageService } from '../../services/image.service';
+import { LoadingService } from '../../services/loading.service';
 import { StorageService } from '../../services/storage.service';
 
 interface PartDetail {
@@ -149,6 +153,10 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     constructor(
         private route: ActivatedRoute,
         public dataService: DataService,
+        private colorGroupingService: ColorGroupingService,
+        private exportService: ExportService,
+        private imageService: ImageService,
+        private loadingService: LoadingService,
         private storageService: StorageService,
         private changeDetectorRef: ChangeDetectorRef
     ) {
@@ -160,7 +168,9 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
      * Generate storage key for parts, with different keys for spare parts vs regular parts
      */
     private getPartStorageKey(partNum: string, colorId: number, isSpare: boolean): string {
-        const baseKey = `${partNum}_${colorId}`;
+        // Apply color aliasing - get the primary color ID if this color is part of an alias
+        const effectiveColorId = this.colorGroupingService.getEffectiveColorId(colorId);
+        const baseKey = `${partNum}_${effectiveColorId}`;
         return isSpare ? `spare_${baseKey}` : baseKey;
     }
 
@@ -168,7 +178,9 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
      * Generate storage key for minifigure parts, including set context for uniqueness
      */
     private getMinifigPartStorageKey(setNum: string, figNum: string, partNum: string, colorId: number): string {
-        return `${setNum}_${figNum}_${partNum}_${colorId}`;
+        // Apply color aliasing - get the primary color ID if this color is part of an alias
+        const effectiveColorId = this.colorGroupingService.getEffectiveColorId(colorId);
+        return `${setNum}_${figNum}_${partNum}_${effectiveColorId}`;
     }
 
     /**
@@ -278,6 +290,8 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
                 const color = colorsMap.get(invPart.color_id);
 
                 if (part && color) {
+                    // Get display color considering aliases
+                    const displayColor = this.colorGroupingService.getDisplayColor(invPart.color_id, colorsMap) || color;
                     const elementId = elementsMap.get(`${invPart.part_num}_${invPart.color_id}`);
                     const storageKey = this.getMinifigPartStorageKey(
                         this.userInventory?.set_num || '',
@@ -291,7 +305,7 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
                     const partDetail: PartDetail = {
                         inventoryPart: invPart,
                         part: part,
-                        color: color,
+                        color: displayColor,
                         imageUrl: invPart.img_url,
                         quantityNeeded: invPart.quantity,
                         quantityOwned: quantityOwned,
@@ -645,9 +659,11 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     }
 
     getPartImageUrl(partNum: string, colorId: number, elementId: string): string {
-        // This would be replaced with actual image paths in a real implementation
-        // return `assets/images/placeholder.svg?part=${partNum}&color=${colorId}`;
-        return `https://cdn.rebrickable.com/media/thumbs/parts/elements/${elementId}.jpg/800x800p.jpg?` + (Date.now() % 1000000);
+        // Build elements map for this specific element
+        const elementsMap = new Map<string, string>();
+        elementsMap.set(`${partNum}_${colorId}`, elementId);
+
+        return this.imageService.getPartImageUrlSync(partNum, colorId, elementsMap, new Map());
     }
 
     getMinifigImageUrl(figNum: string): string {
@@ -788,6 +804,8 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
                         const color = colorsMap.get(invPart.color_id);
 
                         if (part && color) {
+                            // Get display color considering aliases
+                            const displayColor = this.colorGroupingService.getDisplayColor(invPart.color_id, colorsMap) || color;
                             const elementId = elementsMap.get(`${invPart.part_num}_${invPart.color_id}`);
                             const storageKey = this.getMinifigPartStorageKey(
                                 this.userInventory!.set_num,
@@ -802,7 +820,7 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
                             const partDetail: PartDetail = {
                                 inventoryPart: invPart,
                                 part: part,
-                                color: color,
+                                color: displayColor,
                                 imageUrl: invPart.img_url,
                                 quantityNeeded: invPart.quantity,
                                 quantityOwned: quantity,
@@ -1357,13 +1375,7 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     }
 
     getLargeImageUrl(imageUrl: string): string {
-        // For higher resolution, try to get a larger version of the image
-        // This assumes the image URL can be modified to get a larger version
-        if (imageUrl.includes('https://cdn.rebrickable.com/media/') && !imageUrl.includes('https://cdn.rebrickable.com/media/thumbs/')) {
-            // replace https://cdn.rebrickable.com/media/ with https://cdn.rebrickable.com/media/thumbs/ and append a timestamp
-            return imageUrl.replace('https://cdn.rebrickable.com/media/', 'https://cdn.rebrickable.com/media/thumbs/') + '/800x800p.jpg?' + Date.now();
-        }
-        return imageUrl;
+        return this.imageService.getLargeImageUrl(imageUrl);
     }
 
     /**
@@ -1412,27 +1424,17 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
             }
         }
 
-        // If we have part information, try the fast inventory_parts fallback
+        // Use the image service to handle the error
         if (partNum && colorId !== undefined) {
-            const fallbackUrl = this.dataService.getFallbackImageFromInventoryPartsFast(partNum, colorId);
-            if (fallbackUrl && fallbackUrl !== currentSrc) {
-                // For large image, try to get a higher resolution version if possible
-                let largeImageUrl = fallbackUrl;
-                if (fallbackUrl.includes('https://cdn.rebrickable.com/media/') && !fallbackUrl.includes('/800x800p.jpg')) {
-                    if (fallbackUrl.includes('https://cdn.rebrickable.com/media/thumbs/')) {
-                        largeImageUrl = fallbackUrl.replace('.jpg', '/800x800p.jpg');
-                    } else {
-                        largeImageUrl = fallbackUrl.replace('https://cdn.rebrickable.com/media/', 'https://cdn.rebrickable.com/media/thumbs/') + '/800x800p.jpg';
-                    }
-                }
-
-                img.src = largeImageUrl;
-                return;
-            }
+            this.imageService.handleImageError(
+                img,
+                partNum,
+                colorId,
+                (pNum, cId) => this.dataService.getFallbackImageFromInventoryPartsFast(pNum, cId)
+            );
+        } else {
+            this.imageService.handleGeneralImageError(img);
         }
-
-        // Final fallback to placeholder
-        img.src = 'assets/images/placeholder.svg';
     }
 
     onImageError(event: Event): void {
@@ -1479,17 +1481,17 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
             }
         }
 
-        // If we have part information, try the inventory_parts fallback
+        // Use the image service to handle the error
         if (partNum && colorId !== undefined) {
-            const fallbackUrl = this.dataService.getFallbackImageFromInventoryPartsFast(partNum, colorId);
-            if (fallbackUrl && fallbackUrl !== currentSrc) {
-                img.src = fallbackUrl;
-                return;
-            }
+            this.imageService.handleImageError(
+                img,
+                partNum,
+                colorId,
+                (pNum, cId) => this.dataService.getFallbackImageFromInventoryPartsFast(pNum, cId)
+            );
+        } else {
+            this.imageService.handleGeneralImageError(img);
         }
-
-        // Final fallback to placeholder
-        img.src = 'assets/images/placeholder.svg';
     }
 
     // TrackBy functions to prevent unnecessary re-rendering and scroll jumping

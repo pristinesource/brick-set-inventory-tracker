@@ -77,11 +77,15 @@ This is an Angular TypeScript application for managing building block inventorie
 - Always check the manifest.json for data file availability and versions
 
 ## Service Usage Patterns
-- DataService: Handles loading and parsing CSV data
-- StorageService: Manages user preferences and settings
-- IndexedDBService: Handles local database operations
+- DataService: Handles loading and parsing CSV data, now with background IndexedDB caching
+- StorageService: Manages user preferences and settings, including My Colors preferences
+- IndexedDBService: Handles local database operations, now includes image cache table
 - LoadingService: Manages loading states across the application
+- BackgroundLoadingService: Shows footer progress for background operations
 - ExportService: Handles data export functionality
+- ImageService: Returns direct CDN URLs for images (simplified for performance)
+- ImageDownloaderService: Disabled due to CORS restrictions
+- ColorGroupingService: Handles color filtering and aliasing for My Colors feature
 
 ## Component Guidelines
 - Use OnPush change detection strategy when possible

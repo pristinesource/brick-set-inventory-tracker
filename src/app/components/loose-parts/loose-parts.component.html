@@ -234,21 +234,22 @@
                                 class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
                                 <div *ngFor="let part of sectionGroup.parts; trackBy: trackByPartNumber"
                                     class="border rounded-lg overflow-hidden hover:shadow-lg transition part-card"
-                                    [attr.data-part-num]="part.part_num"
-                                    [attr.data-color-id]="getDisplayColorForPart(part.part_num)">
+                                    [attr.data-part-num]="part.part_num" [attr.data-color-id]="part.displayColorId">
                                     <div class="part-card-content">
                                         <!-- Part Image -->
                                         <div class="mb-3 flex justify-center">
-                                            <div class="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer relative"
+                                            <div class="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex flex-col cursor-pointer"
                                                 (click)="openImageOverlay(part.hasImageUrl, part.name)">
-                                                <img [src]="part.hasImageUrl" [alt]="part.name"
-                                                    class="w-full h-full object-contain hover:opacity-80 transition-opacity"
-                                                    (error)="onImageError($event)">
-                                                <!-- Color indicator for non-default colors -->
-                                                <div *ngIf="!isDisplayingDefaultColor(part.part_num)"
-                                                    class="absolute top-1 right-1 w-3 h-3 rounded-full border border-white shadow-sm"
-                                                    [style.background-color]="'#' + getDisplayColorRgb(part.part_num)"
-                                                    [title]="'Displayed in: ' + getDisplayColorNameForPart(part.part_num)">
+                                                <div class="flex-1 flex items-center justify-center">
+                                                    <img [src]="part.hasImageUrl" [alt]="part.name"
+                                                        class="w-full h-full object-contain hover:opacity-80 transition-opacity"
+                                                        (error)="onImageError($event)">
+                                                </div>
+                                                <!-- Color bar indicator for non-default colors -->
+                                                <div *ngIf="!part.isDefaultColor"
+                                                    class="w-full h-8 border-t border-white"
+                                                    [style.background-color]="'#' + part.displayColorRgb"
+                                                    [title]="'Displayed in: ' + part.displayColorName">
                                                 </div>
                                             </div>
                                         </div>
@@ -355,21 +356,21 @@
                     class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
                     <div *ngFor="let part of paginatedParts; trackBy: trackByPartNumber"
                         class="border rounded-lg overflow-hidden hover:shadow-lg transition part-card"
-                        [attr.data-part-num]="part.part_num"
-                        [attr.data-color-id]="getDisplayColorForPart(part.part_num)">
+                        [attr.data-part-num]="part.part_num" [attr.data-color-id]="part.displayColorId">
                         <div class="part-card-content">
                             <!-- Part Image -->
                             <div class="mb-3 flex justify-center">
-                                <div class="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer relative"
+                                <div class="w-16 h-20 bg-gray-100 rounded-lg overflow-hidden flex flex-col cursor-pointer"
                                     (click)="openImageOverlay(part.hasImageUrl, part.name)">
-                                    <img [src]="part.hasImageUrl" [alt]="part.name"
-                                        class="w-full h-full object-contain hover:opacity-80 transition-opacity"
-                                        (error)="onImageError($event)">
-                                    <!-- Color indicator for non-default colors -->
-                                    <div *ngIf="!isDisplayingDefaultColor(part.part_num)"
-                                        class="absolute top-1 right-1 w-3 h-3 rounded-full border border-white shadow-sm"
-                                        [style.background-color]="'#' + getDisplayColorRgb(part.part_num)"
-                                        [title]="'Displayed in: ' + getDisplayColorNameForPart(part.part_num)">
+                                    <div class="flex-1 flex items-center justify-center">
+                                        <img [src]="part.hasImageUrl" [alt]="part.name"
+                                            class="w-full h-full object-contain hover:opacity-80 transition-opacity"
+                                            (error)="onImageError($event)">
+                                    </div>
+                                    <!-- Color bar indicator for non-default colors -->
+                                    <div *ngIf="!part.isDefaultColor" class="w-full h-8 border-t border-white"
+                                        [style.background-color]="'#' + part.displayColorRgb"
+                                        [title]="'Displayed in: ' + part.displayColorName">
                                     </div>
                                 </div>
                             </div>
@@ -473,7 +474,7 @@
 
                 <div *ngFor="let part of paginatedParts; trackBy: trackByPartNumber"
                     class="grid grid-cols-12 gap-4 px-4 py-3 border rounded hover:bg-gray-50 transition items-center"
-                    [attr.data-part-num]="part.part_num" [attr.data-color-id]="getDisplayColorForPart(part.part_num)">
+                    [attr.data-part-num]="part.part_num" [attr.data-color-id]="part.displayColorId">
 
                     <!-- Image -->
                     <div class="col-span-1">
@@ -639,7 +640,7 @@
 <div *ngIf="showColorTrackingModal && colorTrackingPart"
     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
     (click)="closeColorTrackingModal()">
-    <div class="bg-white rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto"
+    <div class="bg-white rounded-lg p-6 w-full max-w-7xl mx-4 max-h-[95vh] overflow-y-auto"
         (click)="$event.stopPropagation()">
         <div class="flex justify-between items-center mb-6">
             <h3 class="text-lg font-semibold">Track Colors: {{ colorTrackingPart.name }}</h3>
@@ -652,59 +653,131 @@
         </div>
 
         <div class="mb-6">
-            <div class="flex items-center justify-between text-sm text-gray-600 mb-4">
-                <span>Set quantities for each available color ({{ getAvailableColorsForTrackingPart().length }}
-                    colors)</span>
-                <span class="font-semibold">Total: {{ getTotalColorQuantity() }}</span>
+            <!-- Loading Indicator -->
+            <div *ngIf="colorTrackingModalLoading" class="flex flex-col items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                <p class="text-gray-600">Loading available colors...</p>
             </div>
 
-            <!-- Colors Grid -->
-            <div *ngIf="getAvailableColorsForTrackingPart().length > 0; else noColorsAvailable"
-                class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 max-h-96 overflow-y-auto">
-                <div *ngFor="let color of getAvailableColorsForTrackingPart(); trackBy: trackByColorId"
-                    class="border rounded-lg p-3" [attr.data-part-num]="colorTrackingPart!.part_num"
-                    [attr.data-color-id]="color.id">
-                    <!-- Part Image in this color -->
-                    <div class="mb-2 flex justify-center">
-                        <div class="w-12 h-12 bg-gray-100 rounded overflow-hidden flex items-center justify-center cursor-pointer"
-                            (click)="openImageOverlay(getPartImageUrlForColor(colorTrackingPart!.part_num, color.id), colorTrackingPart!.name + ' (' + color.name + ')')">
-                            <img [src]="getPartImageUrlForColor(colorTrackingPart!.part_num, color.id)"
-                                [alt]="colorTrackingPart!.name + ' in ' + color.name"
-                                class="w-full h-full object-contain hover:opacity-80 transition-opacity"
-                                (error)="onImageError($event)">
+            <!-- Content when loaded -->
+            <div *ngIf="!colorTrackingModalLoading">
+                <div class="flex items-center justify-between text-sm text-gray-600 mb-4">
+                    <span>Set quantities for each available color ({{ getAvailableColorsForTrackingPart().length }}
+                        colors)</span>
+                    <span class="font-semibold">Total: {{ getTotalColorQuantity() }}</span>
+                </div>
+
+                <!-- My Colors filter indicator -->
+                <div *ngIf="hasMyColorsEnabled() && getHiddenColorsCount() > 0"
+                    class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <svg class="w-5 h-5 text-yellow-600 mr-2" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                                </path>
+                            </svg>
+                            <span class="text-sm text-gray-700">
+                                {{ getHiddenColorsCount() }} {{ getHiddenColorsCount() === 1 ? 'color' : 'colors' }}
+                                hidden by My Colors filter
+                            </span>
+                        </div>
+                        <button (click)="toggleHiddenColors()"
+                            [class]="showHiddenColors ? 'bg-yellow-600 text-white' : 'bg-yellow-100 text-yellow-700'"
+                            class="px-3 py-1 rounded text-sm hover:opacity-80 transition">
+                            {{ showHiddenColors ? 'Hide' : 'Show' }} Hidden Colors
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Colors by Groups -->
+                <div *ngIf="cachedColorGroups.length > 0; else noColorsAvailable"
+                    class="max-h-[70vh] overflow-y-auto space-y-6">
+
+                    <!-- Color Group Section -->
+                    <div *ngFor="let colorGroup of cachedColorGroups; trackBy: trackByColorGroup"
+                        class="color-group-section">
+
+                        <!-- Group Header -->
+                        <div class="flex items-center mb-3">
+                            <h4 class="text-sm font-semibold text-gray-700 bg-gray-100 px-3 py-1 rounded-full">
+                                {{ colorGroup.groupName }}
+                            </h4>
+                            <div class="flex-1 ml-3 border-t border-gray-200"></div>
+                            <span class="ml-3 text-xs text-gray-500">{{ colorGroup.colors.length }}
+                                {{ colorGroup.colors.length === 1 ? 'color' : 'colors' }}</span>
+                        </div>
+
+                        <!-- Colors Grid for this group -->
+                        <div
+                            class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-4">
+                            <div *ngFor="let color of colorGroup.colors; trackBy: trackByColorId"
+                                class="border rounded-lg p-3 min-h-0 relative" [attr.data-part-num]="colorTrackingPart!.part_num"
+                                [attr.data-color-id]="color.id">
+                                <!-- My Colors star indicator -->
+                                <div *ngIf="isColorInMyColors(color)" 
+                                    class="absolute top-1 left-1 z-10"
+                                    title="This color is in My Colors">
+                                    <svg class="w-5 h-5 text-yellow-500 drop-shadow-md" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                    </svg>
+                                </div>
+                                <!-- Part Image in this color -->
+                                <div class="mb-3 flex justify-center">
+                                    <div class="w-16 h-20 bg-gray-100 rounded overflow-hidden flex flex-col cursor-pointer"
+                                        (click)="openImageOverlay(getPartImageUrlForColor(colorTrackingPart!.part_num, color.id), colorTrackingPart!.name + ' (' + getColorDisplayName(color) + ')')">
+                                        <div class="flex-1 flex items-center justify-center">
+                                            <img [src]="getPartImageUrlForColor(colorTrackingPart!.part_num, color.id)"
+                                                [alt]="colorTrackingPart!.name + ' in ' + getColorDisplayName(color)"
+                                                class="w-full h-full object-contain hover:opacity-80 transition-opacity"
+                                                (error)="onColorModalImageError($event, colorTrackingPart!.part_num, color.id)"
+                                                loading="lazy">
+                                        </div>
+                                        <!-- Color bar indicator -->
+                                        <div class="w-full h-8 border-t border-white"
+                                            [style.background-color]="'#' + color.rgb"
+                                            [title]="'Color: ' + getColorDisplayName(color)">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Color name -->
+                                <div class="mb-3">
+                                    <div class="text-center">
+                                        <span class="text-xs font-medium text-gray-700 leading-tight block"
+                                            [title]="getColorDisplayName(color)">
+                                            {{ getColorDisplayName(color) }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <input type="number" min="0" [value]="colorTrackingQuantities[color.id] || 0"
+                                    (change)="updateColorQuantity(color.id, getInputValue($event))"
+                                    class="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="flex items-center mb-2">
-                        <div class="w-4 h-4 rounded-full border-2 border-gray-300 mr-2 flex-shrink-0"
-                            [style.background-color]="'#' + color.rgb"></div>
-                        <span class="text-xs font-medium text-gray-700 truncate" [title]="color.name">
-                            {{ color.name }}
-                        </span>
+                <!-- No colors available template -->
+                <ng-template #noColorsAvailable>
+                    <div class="text-center py-8">
+                        <svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z">
+                            </path>
+                        </svg>
+                        <h3 class="text-lg font-medium text-gray-700 mb-2">No Colors Available</h3>
+                        <p class="text-gray-500">This part doesn't have any color variations available in the database.
+                        </p>
                     </div>
-
-                    <input type="number" min="0" [value]="colorTrackingQuantities[color.id] || 0"
-                        (change)="updateColorQuantity(color.id, getInputValue($event))"
-                        class="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                </div>
+                </ng-template>
             </div>
-
-            <!-- No colors available template -->
-            <ng-template #noColorsAvailable>
-                <div class="text-center py-8">
-                    <svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor"
-                        viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a2 2 0 002-2V5z">
-                        </path>
-                    </svg>
-                    <h3 class="text-lg font-medium text-gray-700 mb-2">No Colors Available</h3>
-                    <p class="text-gray-500">This part doesn't have any color variations available in the database.</p>
-                </div>
-            </ng-template>
         </div>
 
-        <div class="flex justify-end space-x-3">
+        <div class="flex justify-end space-x-3" *ngIf="!colorTrackingModalLoading">
             <button (click)="closeColorTrackingModal()"
                 class="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50 transition">
                 Cancel

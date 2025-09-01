@@ -21,6 +21,8 @@ import {
     PartialSet,
     Theme
 } from '../models/models';
+import { BackgroundLoadingService } from './background-loading.service';
+import { ImageService } from './image.service';
 import { IndexedDBService } from './indexeddb.service';
 import { LoadingService } from './loading.service';
 import { StorageService } from './storage.service';
@@ -68,7 +70,9 @@ export class DataService {
         private http: HttpClient,
         private storageService: StorageService,
         private indexedDBService: IndexedDBService,
-        private loadingService: LoadingService
+        private loadingService: LoadingService,
+        private backgroundLoadingService: BackgroundLoadingService,
+        private imageService: ImageService
     ) {
         this.loadData();
     }
@@ -110,13 +114,12 @@ export class DataService {
                         this.loadingService.updateProgress({ phase: 'Cache invalid, loading CSV files...', percentage: 12 });
                         csvData = await this.loadFromCSVFilesWithProgress();
 
-                        // Try to save to IndexedDB cache if possible
+                        // Don't block on saving to IndexedDB - do it in the background
                         if (csvData && IndexedDBService.isSupported() && !this.indexedDBService.isDisabledForSession()) {
-                            try {
-                                await this.saveToIndexedDB(csvData);
-                            } catch (saveError) {
-                                console.warn('Failed to save to cache after CSV load:', saveError);
-                            }
+                            // Start background save without waiting
+                            this.saveToIndexedDBInBackground(csvData).catch(error => {
+                                console.warn('Background save to IndexedDB failed:', error);
+                            });
                         }
                     }
                 } catch (error) {
@@ -142,14 +145,22 @@ export class DataService {
             const duration = (endTime - startTime) / 1000;
             console.log(`✅ Data loading completed in ${duration.toFixed(2)} seconds`);
 
-            this.loadingService.updateProgress({ phase: 'Ready! Data loading complete.', percentage: 100 });
+            // IMPORTANT: Mark data as loaded BEFORE hiding the loading overlay
+            // This ensures components can access data immediately
             this.dataLoaded.next(true);
             this.dataLoading = false;
+
+            this.loadingService.updateProgress({ phase: 'Ready! Data loading complete.', percentage: 100 });
 
             // Hide loading overlay after a brief delay to show completion
             setTimeout(() => {
                 this.loadingService.hideLoading();
-            }, 1000);
+            }, 500);
+
+            // Image preloading disabled due to CORS restrictions on Rebrickable CDN
+            // this.preloadPopularPartImages().catch(error => {
+            //     console.warn('Failed to preload part images:', error);
+            // });
 
         } catch (error) {
             console.error('Error loading data:', error);
@@ -1033,6 +1044,13 @@ export class DataService {
         return of(colors);
     }
 
+    /**
+     * Get all inventory parts across all inventories
+     */
+    getAllInventoryParts(): InventoryPart[] {
+        return this.inventoryParts;
+    }
+
     getElementsByIds(elementIds: string[]): Observable<Element[]> {
         const elements = elementIds
             .map(elementId => this.elementsCache.get(elementId))
@@ -1127,7 +1145,50 @@ export class DataService {
     }
 
     /**
-     * Save CSV data to IndexedDB cache
+     * Save CSV data to IndexedDB cache in the background
+     */
+    private async saveToIndexedDBInBackground(csvData: any): Promise<void> {
+        try {
+            // Check if IndexedDB is available and not disabled
+            if (!IndexedDBService.isSupported() || this.indexedDBService.isDisabledForSession()) {
+                console.warn('IndexedDB not available for CSV caching');
+                return;
+            }
+
+            // Calculate total records for progress tracking
+            const totalRecords = this.getTotalRecords(csvData);
+
+            // Start background loading indicator
+            this.backgroundLoadingService.startLoading('Optimizing database for faster future loads...', totalRecords);
+
+            // Add timestamp and version to the data
+            const dataWithMetadata = {
+                ...csvData,
+                timestamp: Date.now(),
+                version: this.CSV_VERSION
+            };
+
+            await this.indexedDBService.saveCSVDataCache(dataWithMetadata, (progress) => {
+                // Update background loading progress
+                this.backgroundLoadingService.updateProgress({
+                    phase: progress.phase || 'Saving data to cache...',
+                    current: progress.current,
+                    total: progress.total,
+                    percentage: progress.percentage
+                });
+            });
+
+            console.log('✅ Successfully cached CSV data to IndexedDB in background');
+            this.backgroundLoadingService.completeLoading('Database optimization complete! Future loads will be much faster.');
+        } catch (error) {
+            console.error('Failed to cache CSV data to IndexedDB:', error);
+            this.backgroundLoadingService.hideLoading();
+            // Don't throw - caching failure shouldn't break the app
+        }
+    }
+
+    /**
+     * Save CSV data to IndexedDB cache (legacy method for direct saves)
      */
     private async saveToIndexedDB(csvData: any): Promise<void> {
         try {
@@ -1159,6 +1220,69 @@ export class DataService {
         } catch (error) {
             console.error('Failed to cache CSV data to IndexedDB:', error);
             // Don't throw - caching failure shouldn't break the app
+        }
+    }
+
+    /**
+     * Preload images for popular parts in the background
+     * @deprecated CORS prevents downloading from Rebrickable CDN
+     */
+    private async preloadPopularPartImages(): Promise<void> {
+        try {
+            // Sort parts by popularity score (descending)
+            const sortedParts = [...this.partPopularityScores]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 100); // Preload top 100 most popular parts
+
+            // Build elements map from current data
+            const elementsMap = new Map<string, string>();
+            this.elements.forEach(element => {
+                elementsMap.set(`${element.part_num}_${element.color_id}`, element.element_id);
+            });
+
+            // Collect parts with their most common colors
+            const partsToPreload: Array<{ partNum: string; colorId: number }> = [];
+
+            for (const partScore of sortedParts) {
+                const partColors = this.inventoryParts
+                    .filter(ip => ip.part_num === partScore.part_num)
+                    .reduce((acc, ip) => {
+                        acc[ip.color_id] = (acc[ip.color_id] || 0) + ip.quantity;
+                        return acc;
+                    }, {} as Record<number, number>);
+
+                // Get the most common color for this part
+                const mostCommonColor = Object.entries(partColors)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 3) // Top 3 colors for each part
+                    .map(([colorId]) => parseInt(colorId));
+
+                for (const colorId of mostCommonColor) {
+                    if (elementsMap.has(`${partScore.part_num}_${colorId}`)) {
+                        partsToPreload.push({
+                            partNum: partScore.part_num,
+                            colorId
+                        });
+                    }
+                }
+            }
+
+            console.log(`📸 Starting background preload of ${partsToPreload.length} popular part images...`);
+
+            // Start preloading in background without blocking
+            this.imageService.preloadPartImages(partsToPreload, elementsMap, (downloaded, total) => {
+                if (downloaded % 10 === 0 || downloaded === total) {
+                    console.log(`📸 Preloaded ${downloaded}/${total} images`);
+                }
+            }).then(() => {
+                console.log('✅ Popular part images preloaded successfully');
+            }).catch(error => {
+                console.warn('Failed to preload some images:', error);
+            });
+
+        } catch (error) {
+            console.error('Error in preloadPopularPartImages:', error);
+            // Don't throw - this is a background optimization
         }
     }
 }
