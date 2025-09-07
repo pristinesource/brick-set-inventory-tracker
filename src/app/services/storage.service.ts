@@ -16,7 +16,8 @@ export class StorageService {
         activeLoosePartsInventoryId: null,
         globalSettings: {
             imagePreviewSize: '1x',
-            includeSparePartsInProgress: true
+            includeSparePartsInProgress: true,
+            alwaysTrackLoosePartsByColor: false
         },
         myColorsSettings: {
             enabledColorIds: [],
@@ -97,7 +98,8 @@ export class StorageService {
             activeLoosePartsInventoryId: null,
             globalSettings: {
                 imagePreviewSize: '1x',
-                includeSparePartsInProgress: true
+                includeSparePartsInProgress: true,
+                alwaysTrackLoosePartsByColor: false
             },
             myColorsSettings: {
                 enabledColorIds: [],
@@ -199,7 +201,8 @@ export class StorageService {
         // Ensure global settings exist with defaults
         const globalSettings: GlobalSettings = {
             imagePreviewSize: state.globalSettings?.imagePreviewSize || '1x',
-            includeSparePartsInProgress: state.globalSettings?.includeSparePartsInProgress || true
+            includeSparePartsInProgress: state.globalSettings?.includeSparePartsInProgress ?? true,
+            alwaysTrackLoosePartsByColor: state.globalSettings?.alwaysTrackLoosePartsByColor ?? false
         };
 
         // Ensure loose parts inventories exist (for backward compatibility)
@@ -472,7 +475,8 @@ export class StorageService {
                 activeLoosePartsInventoryId: null,
                 globalSettings: {
                     imagePreviewSize: '1x',
-                    includeSparePartsInProgress: true
+                    includeSparePartsInProgress: true,
+                    alwaysTrackLoosePartsByColor: false
                 },
                 myColorsSettings: {
                     enabledColorIds: [],
@@ -532,7 +536,8 @@ export class StorageService {
                 activeLoosePartsInventoryId: null,
                 globalSettings: {
                     imagePreviewSize: '1x',
-                    includeSparePartsInProgress: true
+                    includeSparePartsInProgress: true,
+                    alwaysTrackLoosePartsByColor: false
                 },
                 myColorsSettings: {
                     enabledColorIds: [],

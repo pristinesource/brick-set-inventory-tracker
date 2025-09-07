@@ -1,0 +1,314 @@
+<div class="container mx-auto p-4">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">Collection Inventory</h1>
+                <p class="text-gray-600 mt-1" *ngIf="collection">
+                    {{ collection.name }}
+                    <span *ngIf="collection.description" class="text-sm text-gray-500">- {{ collection.description
+                        }}</span>
+                </p>
+            </div>
+            <button (click)="navigateBack()"
+                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Loose Parts
+            </button>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+            <div class="bg-gray-50 rounded-lg p-3">
+                <p class="text-sm text-gray-600">Total Parts</p>
+                <p class="text-xl font-bold text-gray-800">{{ totalPartsCount }}</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-3">
+                <p class="text-sm text-gray-600">Total Quantity</p>
+                <p class="text-xl font-bold text-gray-800">{{ totalQuantity }}</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-3">
+                <p class="text-sm text-gray-600">Parts with Zero</p>
+                <p class="text-xl font-bold text-orange-600">{{ zeroQuantityCount }}</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-3" *ngIf="hasUnsavedChanges">
+                <p class="text-sm text-gray-600">Status</p>
+                <p class="text-lg font-bold text-yellow-600">Unsaved Changes</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+        <div class="flex flex-wrap gap-4 items-center justify-between">
+            <!-- Search -->
+            <div class="flex-1 min-w-[200px] max-w-md">
+                <div class="relative">
+                    <input type="text" [(ngModel)]="searchTerm" (ngModelChange)="onSearchChange()"
+                        placeholder="Search by part number or name..."
+                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <svg class="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="flex gap-2">
+                <button (click)="toggleShowZeroQuantity()" class="px-4 py-2 rounded-lg transition-colors duration-200"
+                    [ngClass]="{
+            'bg-blue-500 text-white': showZeroQuantity,
+            'bg-gray-200 text-gray-700 hover:bg-gray-300': !showZeroQuantity
+          }">
+                    {{ showZeroQuantity ? 'Showing' : 'Hiding' }} Zero Quantity
+                </button>
+
+                <button (click)="saveChanges()" [disabled]="!hasUnsavedChanges"
+                    class="px-4 py-2 rounded-lg transition-colors duration-200" [ngClass]="{
+            'bg-green-500 hover:bg-green-600 text-white': hasUnsavedChanges,
+            'bg-gray-200 text-gray-400 cursor-not-allowed': !hasUnsavedChanges
+          }">
+                    Save Changes
+                </button>
+            </div>
+
+            <!-- View Mode -->
+            <div class="flex gap-2">
+                <button (click)="changeViewMode('tiles')" class="p-2 rounded-lg transition-colors duration-200"
+                    [ngClass]="{
+            'bg-blue-500 text-white': viewMode === 'tiles',
+            'bg-gray-200 text-gray-700 hover:bg-gray-300': viewMode !== 'tiles'
+          }">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z">
+                        </path>
+                    </svg>
+                </button>
+                <button (click)="changeViewMode('list')" class="p-2 rounded-lg transition-colors duration-200"
+                    [ngClass]="{
+            'bg-blue-500 text-white': viewMode === 'list',
+            'bg-gray-200 text-gray-700 hover:bg-gray-300': viewMode !== 'list'
+          }">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div *ngIf="loading" class="bg-white rounded-lg shadow-md p-8 text-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+        <p class="mt-4 text-gray-600">Loading collection inventory...</p>
+    </div>
+
+    <!-- Parts Grid/List -->
+    <div *ngIf="!loading && paginatedParts.length > 0">
+        <!-- Tiles View -->
+        <div *ngIf="viewMode === 'tiles'" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            <div *ngFor="let item of paginatedParts; trackBy: trackByPartNum"
+                class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200"
+                [ngClass]="{'opacity-50': item.totalQuantity === 0}">
+                <div class="p-4">
+                    <!-- Part Image -->
+                    <div class="aspect-square mb-3 flex items-center justify-center bg-gray-100 rounded">
+                        <img [src]="item.imageUrl" [alt]="item.part.name" class="max-w-full max-h-full object-contain"
+                            loading="lazy">
+                    </div>
+
+                    <!-- Part Info -->
+                    <div class="space-y-1">
+                        <p class="font-semibold text-sm text-gray-800 truncate" [title]="item.part.name">
+                            {{ item.part.name }}
+                        </p>
+                        <p class="text-xs text-gray-600">{{ item.part.part_num }}</p>
+                        <p class="text-xs text-gray-500 truncate" *ngIf="item.category">
+                            {{ item.category.name }}
+                        </p>
+                    </div>
+
+                    <!-- Quantity Controls -->
+                    <div class="mt-3 flex items-center gap-2">
+                        <button (click)="decrementQuantity(item)"
+                            class="w-8 h-8 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors duration-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4">
+                                </path>
+                            </svg>
+                        </button>
+                        <input type="number" [value]="item.totalQuantity" (change)="onQuantityChange(item, $event)"
+                            min="0"
+                            class="flex-1 text-center border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button (click)="incrementQuantity(item)"
+                            class="w-8 h-8 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors duration-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- List View -->
+        <div *ngIf="viewMode === 'list'" class="bg-white rounded-lg shadow-md overflow-hidden">
+            <table class="w-full">
+                <thead>
+                    <tr class="bg-gray-50 border-b">
+                        <th class="px-4 py-3 text-left">
+                            <button (click)="changeSort('partNumber')"
+                                class="font-semibold text-gray-700 hover:text-blue-600 flex items-center gap-1">
+                                Part #
+                                <svg *ngIf="sortField === 'partNumber'" class="w-4 h-4" fill="currentColor"
+                                    viewBox="0 0 20 20">
+                                    <path *ngIf="sortDirection === 'asc'" d="M5 10l5-5 5 5H5z" />
+                                    <path *ngIf="sortDirection === 'desc'" d="M15 10l-5 5-5-5h10z" />
+                                </svg>
+                            </button>
+                        </th>
+                        <th class="px-4 py-3 text-left">
+                            <button (click)="changeSort('partName')"
+                                class="font-semibold text-gray-700 hover:text-blue-600 flex items-center gap-1">
+                                Name
+                                <svg *ngIf="sortField === 'partName'" class="w-4 h-4" fill="currentColor"
+                                    viewBox="0 0 20 20">
+                                    <path *ngIf="sortDirection === 'asc'" d="M5 10l5-5 5 5H5z" />
+                                    <path *ngIf="sortDirection === 'desc'" d="M15 10l-5 5-5-5h10z" />
+                                </svg>
+                            </button>
+                        </th>
+                        <th class="px-4 py-3 text-left">
+                            <button (click)="changeSort('category')"
+                                class="font-semibold text-gray-700 hover:text-blue-600 flex items-center gap-1">
+                                Category
+                                <svg *ngIf="sortField === 'category'" class="w-4 h-4" fill="currentColor"
+                                    viewBox="0 0 20 20">
+                                    <path *ngIf="sortDirection === 'asc'" d="M5 10l5-5 5 5H5z" />
+                                    <path *ngIf="sortDirection === 'desc'" d="M15 10l-5 5-5-5h10z" />
+                                </svg>
+                            </button>
+                        </th>
+                        <th class="px-4 py-3 text-left">Color</th>
+                        <th class="px-4 py-3 text-center">
+                            <button (click)="changeSort('quantity')"
+                                class="font-semibold text-gray-700 hover:text-blue-600 flex items-center gap-1 mx-auto">
+                                Quantity
+                                <svg *ngIf="sortField === 'quantity'" class="w-4 h-4" fill="currentColor"
+                                    viewBox="0 0 20 20">
+                                    <path *ngIf="sortDirection === 'asc'" d="M5 10l5-5 5 5H5z" />
+                                    <path *ngIf="sortDirection === 'desc'" d="M15 10l-5 5-5-5h10z" />
+                                </svg>
+                            </button>
+                        </th>
+                        <th class="px-4 py-3 text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let item of paginatedParts; trackBy: trackByPartNum"
+                        class="border-b hover:bg-gray-50 transition-colors duration-200"
+                        [ngClass]="{'opacity-50 bg-gray-50': item.totalQuantity === 0}">
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-3">
+                                <img [src]="item.imageUrl" [alt]="item.part.name"
+                                    class="w-12 h-12 object-contain bg-gray-100 rounded" loading="lazy">
+                                <span class="font-medium text-gray-800">{{ item.part.part_num }}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-gray-700">{{ item.part.name }}</td>
+                        <td class="px-4 py-3 text-gray-600">
+                            {{ item.category?.name || '-' }}
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <div class="w-6 h-6 rounded border border-gray-300"
+                                    [style.backgroundColor]="'#' + item.displayColorRgb"
+                                    [title]="item.displayColorName"></div>
+                                <span class="text-sm text-gray-600">{{ item.displayColorName }}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center justify-center gap-2">
+                                <button (click)="decrementQuantity(item)"
+                                    class="w-8 h-8 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors duration-200">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M20 12H4"></path>
+                                    </svg>
+                                </button>
+                                <input type="number" [value]="item.totalQuantity"
+                                    (change)="onQuantityChange(item, $event)" min="0"
+                                    class="w-20 text-center border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <button (click)="incrementQuantity(item)"
+                                    class="w-8 h-8 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors duration-200">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-center">
+                            <span *ngIf="item.totalQuantity === 0" class="text-xs text-orange-600 font-medium">
+                                Will be removed on save
+                            </span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div *ngIf="totalPages > 1" class="mt-6 flex justify-center">
+            <div class="flex items-center gap-2">
+                <button (click)="previousPage()" [disabled]="currentPage === 1"
+                    class="px-3 py-2 rounded-lg transition-colors duration-200" [ngClass]="{
+            'bg-gray-200 text-gray-400 cursor-not-allowed': currentPage === 1,
+            'bg-white text-gray-700 hover:bg-gray-100 shadow': currentPage !== 1
+          }">
+                    Previous
+                </button>
+
+                <ng-container *ngFor="let page of pageNumbers; trackBy: trackByPageNumber">
+                    <button *ngIf="page !== -1" (click)="goToPage(page)"
+                        class="px-3 py-2 rounded-lg transition-colors duration-200" [ngClass]="{
+              'bg-blue-500 text-white': page === currentPage,
+              'bg-white text-gray-700 hover:bg-gray-100 shadow': page !== currentPage
+            }">
+                        {{ page }}
+                    </button>
+                    <span *ngIf="page === -1" class="px-2 text-gray-400">...</span>
+                </ng-container>
+
+                <button (click)="nextPage()" [disabled]="currentPage === totalPages"
+                    class="px-3 py-2 rounded-lg transition-colors duration-200" [ngClass]="{
+            'bg-gray-200 text-gray-400 cursor-not-allowed': currentPage === totalPages,
+            'bg-white text-gray-700 hover:bg-gray-100 shadow': currentPage !== totalPages
+          }">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div *ngIf="!loading && filteredParts.length === 0" class="bg-white rounded-lg shadow-md p-8 text-center">
+        <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4">
+            </path>
+        </svg>
+        <p class="text-gray-600">
+            <span *ngIf="searchTerm">No parts found matching your search.</span>
+            <span *ngIf="!searchTerm">This collection is empty.</span>
+        </p>
+    </div>
+</div>

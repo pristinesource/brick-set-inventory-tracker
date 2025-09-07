@@ -90,6 +90,7 @@ This application manages inventories of modular building blocks using data from 
 3. **Completion Analysis**: Calculate percentage complete for sets
 4. **Missing Parts**: Identify what parts are needed to complete sets
 5. **External Integration**: Direct Rebrickable links for all parts across inventory views (loose parts, set inventories, missing parts)
+6. **Unified Inventory View**: Single InventoryDetailComponent handles set inventories, missing parts, and loose parts collections
 
 #### Data Processing
 1. **CSV Import**: Load large Rebrickable datasets efficiently

@@ -61,6 +61,7 @@ This is an Angular TypeScript application for managing building block inventorie
 - Models are defined in `src/app/models/models.ts`
 - Static data files are in `src/assets/data/` and custom data in `src/assets/custom_data/`
 - The app uses lazy loading for route components
+- CollectionInventoryComponent has been deprecated in favor of using InventoryDetailComponent for all inventory views
 
 ## Code Style and Conventions
 - Use TypeScript with strict typing
@@ -92,6 +93,10 @@ This is an Angular TypeScript application for managing building block inventorie
 - Implement OnDestroy for cleanup of subscriptions
 - Use trackBy functions for *ngFor loops with large datasets
 - Lazy load routes to improve initial load performance
+- InventoryDetailComponent now handles three modes:
+  - Standard mode: for viewing set inventories
+  - Missing parts mode: for viewing missing parts across all sets
+  - Loose parts mode: for viewing loose parts collections
 
 ## File Modification Guidelines
 - When modifying CSV data files, update the manifest.json with new file information

@@ -1,14 +1,15 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnDestroy, OnInit, ViewChild, ViewContainerRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { filter, forkJoin, map, of, switchMap } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, filter, forkJoin, map, of, switchMap, takeUntil } from 'rxjs';
 import {
     Color,
     GlobalSettings,
     Inventory,
     InventoryMinifig,
     InventoryPart,
+    LoosePartsInventory,
     Minifig,
     Part,
     PartialSet,
@@ -22,6 +23,7 @@ import { DataService } from '../../services/data.service';
 import { ExportService } from '../../services/export.service';
 import { ImageService } from '../../services/image.service';
 import { LoadingService } from '../../services/loading.service';
+import { PartMappingService } from '../../services/part-mapping.service';
 import { StorageService } from '../../services/storage.service';
 
 interface PartDetail {
@@ -58,6 +60,11 @@ interface MinifigDetail {
     styleUrls: ['./inventory-detail.component.css']
 })
 export class InventoryDetailComponent implements OnInit, OnDestroy {
+    private destroy$ = new Subject<void>();
+    private searchSubject$ = new Subject<string>();
+    private elementsMap: Map<string, string> = new Map();
+    private partColorsMap: Map<string, number[]> = new Map();
+
     userInventory: UserInventory | null = null;
     inventory: Inventory | null = null;
     set: PartialSet | null = null;
@@ -75,6 +82,10 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     // Missing parts mode
     isMissingPartsMode = false;
     userInventories: UserInventory[] = [];
+
+    // Loose parts collection mode
+    isLoosePartsMode = false;
+    loosePartsInventory: LoosePartsInventory | null = null;
 
     // Set details
     theme: Theme | null = null;
@@ -138,7 +149,8 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     // Global settings
     globalSettings: GlobalSettings = {
         imagePreviewSize: '1x',
-        includeSparePartsInProgress: true // Default to including spare parts in progress
+        includeSparePartsInProgress: true, // Default to including spare parts in progress
+        alwaysTrackLoosePartsByColor: false
     };
 
     // Minifigure parts expansion tracking - now tracks collapsed instead of expanded
@@ -150,6 +162,10 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     // Cached progress values
     private _totalMinifigPartsProgress = { owned: 0, total: 0, missing: 0, percentage: 0 };
 
+    // Camera modal
+    @ViewChild('cameraModalContainer', { read: ViewContainerRef }) cameraModalContainer!: ViewContainerRef;
+    showCameraModal = false;
+
     constructor(
         private route: ActivatedRoute,
         public dataService: DataService,
@@ -157,6 +173,7 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
         private exportService: ExportService,
         private imageService: ImageService,
         private loadingService: LoadingService,
+        private partMappingService: PartMappingService,
         private storageService: StorageService,
         private changeDetectorRef: ChangeDetectorRef
     ) {
@@ -436,24 +453,55 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
         this.updateTotalMinifigPartsProgress();
     }
 
+    onSearchChange(): void {
+        // Emit to the debounced search subject
+        this.searchSubject$.next(this.searchTerm);
+    }
+
     filterParts(): void {
         if (!this.searchTerm) {
             this.filteredParts = [...this.parts];
             return;
         }
 
-        const term = this.searchTerm.toLowerCase();
-        const filtered = this.parts.filter(part =>
-            part.part.name.toLowerCase().includes(term) ||
-            part.part.part_num.toLowerCase().includes(term) ||
-            part.color.name.toLowerCase().includes(term)
-        );
+        // Parse search term to handle quoted strings
+        const searchWords = this.parseSearchTerms(this.searchTerm.toLowerCase());
+
+        const filtered = this.parts.filter(part => {
+            // For each part, check if ANY search word/phrase matches
+            return searchWords.some(searchWord => {
+                // Check part name
+                if (part.part.name.toLowerCase().includes(searchWord)) {
+                    return true;
+                }
+
+                // Check color name
+                if (part.color.name.toLowerCase().includes(searchWord)) {
+                    return true;
+                }
+
+                // Check part number directly
+                if (part.part.part_num.toLowerCase().includes(searchWord)) {
+                    return true;
+                }
+
+                // Check all possible part numbers (including BrickLink variants)
+                const allNumbers = this.partMappingService.getAllPartNumbers(part.part.part_num);
+                return allNumbers.some(num => num.toLowerCase().includes(searchWord));
+            });
+        });
 
         // Apply sorting to filtered results
         this.filteredParts = this.sortParts(filtered);
     }
 
     updatePartQuantity(part: PartDetail, quantity: number): void {
+        // Handle loose parts collection mode
+        if (this.isLoosePartsMode && this.loosePartsInventory) {
+            this.updateLoosePartQuantity(part, quantity);
+            return;
+        }
+
         if (!this.userInventory) return;
 
         // Determine if this is a spare part by checking which array it belongs to
@@ -500,6 +548,71 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
             description: `Changed ${part.part.name} quantity from ${previousQuantity} to ${clampedQuantity}`
         };
         this.addUndoAction(undoAction);
+    }
+
+    private updateLoosePartQuantity(part: PartDetail, quantity: number): void {
+        if (!this.loosePartsInventory) return;
+
+        const partNum = part.inventoryPart.part_num;
+        const colorId = part.inventoryPart.color_id;
+        const previousQuantity = part.quantityOwned;
+
+        // Ensure quantity is not negative
+        const clampedQuantity = Math.max(0, quantity);
+
+        // If no change, return
+        if (clampedQuantity === previousQuantity) {
+            return;
+        }
+
+        // Update display
+        part.quantityOwned = clampedQuantity;
+        part.quantityNeeded = clampedQuantity;
+
+        // Get or create entry
+        let entry = this.loosePartsInventory.parts[partNum];
+        if (!entry) {
+            entry = {
+                trackByColor: true,
+                colorQuantities: {},
+                totalQuantity: 0,
+                lastUpdated: Date.now()
+            };
+            this.loosePartsInventory.parts[partNum] = entry;
+        }
+
+        // Update color quantity
+        if (entry.trackByColor) {
+            if (!entry.colorQuantities) {
+                entry.colorQuantities = {};
+            }
+            if (clampedQuantity === 0) {
+                delete entry.colorQuantities[colorId];
+            } else {
+                entry.colorQuantities[colorId] = clampedQuantity;
+            }
+
+            // Update total
+            entry.totalQuantity = Object.values(entry.colorQuantities).reduce((sum, q) => sum + q, 0);
+
+            // Remove entry if no quantities
+            if (entry.totalQuantity === 0) {
+                delete this.loosePartsInventory.parts[partNum];
+            }
+        } else {
+            entry.totalQuantity = clampedQuantity;
+            if (clampedQuantity === 0) {
+                delete this.loosePartsInventory.parts[partNum];
+            }
+        }
+
+        // Update last updated
+        entry.lastUpdated = Date.now();
+        this.loosePartsInventory.lastUpdated = Date.now();
+
+        // Save to storage
+        this.storageService.updateLoosePartsInventory(this.loosePartsInventory);
+        this.updateCounts();
     }
 
     updateMinifigQuantity(minifig: MinifigDetail, quantity: number): void {
@@ -661,9 +774,15 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     getPartImageUrl(partNum: string, colorId: number, elementId: string): string {
         // Build elements map for this specific element
         const elementsMap = new Map<string, string>();
-        elementsMap.set(`${partNum}_${colorId}`, elementId);
+        if (elementId) {
+            elementsMap.set(`${partNum}_${colorId}`, elementId);
+        }
 
-        return this.imageService.getPartImageUrlSync(partNum, colorId, elementsMap, new Map());
+        // Build part colors map
+        const partColorsMap = new Map<string, number[]>();
+        partColorsMap.set(partNum, [colorId]);
+
+        return this.imageService.getPartImageUrlSync(partNum, colorId, elementsMap, partColorsMap);
     }
 
     getMinifigImageUrl(figNum: string): string {
@@ -1437,8 +1556,27 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
         }
     }
 
-    onImageError(event: Event): void {
+    onSetImageError(event: Event): void {
         const img = event.target as HTMLImageElement;
+        this.imageService.handleGeneralImageError(img);
+    }
+
+    onImageError(event: Event, partNum?: string, colorId?: number): void {
+        const img = event.target as HTMLImageElement;
+
+        // If part info was passed directly, use the enhanced retry handler
+        if (partNum && colorId !== undefined) {
+            this.imageService.handleImageErrorWithRetry(
+                img,
+                partNum,
+                colorId,
+                this.partColorsMap,
+                this.elementsMap
+            );
+            return;
+        }
+
+        // Otherwise fall back to the existing logic
         const currentSrc = img.src;
 
         // If we're already showing the placeholder, don't try again
@@ -1447,26 +1585,26 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
         }
 
         // Try to extract part_num and color from the image context
-        let partNum: string | undefined;
-        let colorId: number | undefined;
+        let extractedPartNum: string | undefined;
+        let extractedColorId: number | undefined;
 
         // Try to find the part number and color from the image context
         // Look through parent elements to find part information
         let element = img.parentElement;
-        while (element && (!partNum || colorId === undefined)) {
+        while (element && (!extractedPartNum || extractedColorId === undefined)) {
             // Look for part data in parent elements
             const partCard = element.closest('[data-part-num]');
             if (partCard) {
-                partNum = partCard.getAttribute('data-part-num') || undefined;
+                extractedPartNum = partCard.getAttribute('data-part-num') || undefined;
                 const colorAttr = partCard.getAttribute('data-color-id');
-                colorId = colorAttr ? parseInt(colorAttr) : undefined;
+                extractedColorId = colorAttr ? parseInt(colorAttr) : undefined;
                 break;
             }
             element = element.parentElement;
         }
 
         // If we couldn't find part info from DOM, try to extract from the current src URL
-        if (!partNum || colorId === undefined) {
+        if (!extractedPartNum || extractedColorId === undefined) {
             // Try to extract from rebrickable URL pattern
             const elementUrlMatch = currentSrc.match(/elements\/(\d+)\.jpg/);
             if (elementUrlMatch) {
@@ -1475,19 +1613,20 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
                 const allElements = this.dataService.getCurrentElements();
                 const element = allElements.find(e => e.element_id === elementId);
                 if (element) {
-                    partNum = element.part_num;
-                    colorId = element.color_id;
+                    extractedPartNum = element.part_num;
+                    extractedColorId = element.color_id;
                 }
             }
         }
 
         // Use the image service to handle the error
-        if (partNum && colorId !== undefined) {
-            this.imageService.handleImageError(
+        if (extractedPartNum && extractedColorId !== undefined) {
+            this.imageService.handleImageErrorWithRetry(
                 img,
-                partNum,
-                colorId,
-                (pNum, cId) => this.dataService.getFallbackImageFromInventoryPartsFast(pNum, cId)
+                extractedPartNum,
+                extractedColorId,
+                this.partColorsMap,
+                this.elementsMap
             );
         } else {
             this.imageService.handleGeneralImageError(img);
@@ -1692,6 +1831,144 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
                 console.error('Error loading inventory details:', err);
                 this.loading = false;
             }
+        });
+    }
+
+    private loadLoosePartsInventoryData(): void {
+        this.route.paramMap.pipe(
+            switchMap(params => {
+                const inventoryId = params.get('id');
+                if (!inventoryId) {
+                    return of(null);
+                }
+
+                return this.storageService.getState().pipe(
+                    map(state => {
+                        // Load global settings
+                        this.globalSettings = { ...state.globalSettings };
+
+                        const looseInventory = state.loosePartsInventories?.find(inv => inv.id === inventoryId) || null;
+                        return looseInventory;
+                    })
+                );
+            }),
+            switchMap(looseInventory => {
+                if (!looseInventory) {
+                    this.loading = false;
+                    return of(null);
+                }
+
+                this.loosePartsInventory = looseInventory;
+
+                // Wait for data to be loaded before proceeding
+                return this.dataService.isDataLoaded().pipe(
+                    filter((loaded: boolean) => loaded === true),
+                    switchMap(() => {
+                        // Convert loose parts inventory to standard inventory format
+                        return this.convertLoosePartsToStandardFormat(looseInventory);
+                    })
+                );
+            })
+        ).subscribe({
+            next: (result) => {
+                if (result) {
+                    this.parts = result.parts;
+                    this.spareParts = [];  // No spare parts in loose collections
+                    this.minifigs = [];    // No minifigs in loose collections
+                    this.filteredParts = this.parts;
+
+                    // Initialize default sorting
+                    this.initializeDefaultSorting();
+                    this.applySorting();
+                    this.updateCounts();
+                }
+                this.loading = false;
+            },
+            error: (err) => {
+                console.error('Error loading loose parts inventory:', err);
+                this.loading = false;
+            }
+        });
+    }
+
+    private convertLoosePartsToStandardFormat(looseInventory: LoosePartsInventory) {
+        const allParts = this.dataService.getCurrentParts();
+        const allColors = this.dataService.getCurrentColors();
+        const allElements = this.dataService.getCurrentElements();
+
+        // Create lookup maps
+        const partsMap = new Map(allParts.map(p => [p.part_num, p]));
+        const colorsMap = new Map(allColors.map(c => [c.id, c]));
+        const elementsMap = new Map(allElements.map(e => [`${e.part_num}_${e.color_id}`, e.element_id]));
+
+        const partDetails: PartDetail[] = [];
+
+        // Convert loose parts entries to PartDetail format
+        Object.entries(looseInventory.parts).forEach(([partNum, entry]) => {
+            const part = partsMap.get(partNum);
+            if (!part) return;
+
+            if (entry.trackByColor && entry.colorQuantities) {
+                // Create separate entries for each color
+                Object.entries(entry.colorQuantities).forEach(([colorIdStr, quantity]) => {
+                    const colorId = parseInt(colorIdStr, 10);
+                    const color = colorsMap.get(colorId);
+                    if (!color || quantity === 0) return;
+
+                    const elementId = elementsMap.get(`${partNum}_${colorId}`);
+
+                    const partDetail: PartDetail = {
+                        inventoryPart: {
+                            inventory_id: 0,
+                            part_num: partNum,
+                            color_id: colorId,
+                            quantity: quantity,
+                            is_spare: false,
+                            img_url: ''
+                        },
+                        part: part,
+                        color: color,
+                        imageUrl: this.getPartImageUrl(partNum, colorId, elementId || ''),
+                        quantityNeeded: quantity,
+                        quantityOwned: quantity,  // In loose parts, owned = needed
+                        elementId: elementId
+                    };
+
+                    partDetails.push(partDetail);
+                });
+            } else if (entry.totalQuantity && entry.totalQuantity > 0) {
+                // Part not tracked by color - use a default color
+                const defaultColorId = 0; // Black
+                const color = colorsMap.get(defaultColorId) || { id: 0, name: 'Unknown', rgb: '000000', is_trans: false };
+
+                const elementId = elementsMap.get(`${partNum}_${defaultColorId}`);
+
+                const partDetail: PartDetail = {
+                    inventoryPart: {
+                        inventory_id: 0,
+                        part_num: partNum,
+                        color_id: defaultColorId,
+                        quantity: entry.totalQuantity,
+                        is_spare: false,
+                        img_url: ''
+                    },
+                    part: part,
+                    color: color,
+                    imageUrl: this.getPartImageUrl(partNum, defaultColorId, elementId || ''),
+                    quantityNeeded: entry.totalQuantity,
+                    quantityOwned: entry.totalQuantity,  // In loose parts, owned = needed
+                    elementId: elementId
+                };
+
+                partDetails.push(partDetail);
+            }
+        });
+
+        return of({
+            parts: partDetails,
+            spareParts: [],
+            minifigs: [],
+            set: null
         });
     }
 
@@ -2041,11 +2318,38 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
 
     async ngOnInit(): Promise<void> {
         try {
+            // Initialize part mapping service to ensure mapping data is loaded
+            await this.partMappingService.initialize().catch(err => {
+                console.warn('Failed to initialize part mapping service:', err);
+            });
+
+            // Set up debounced search
+            this.searchSubject$.pipe(
+                debounceTime(500),
+                distinctUntilChanged(),
+                takeUntil(this.destroy$)
+            ).subscribe(searchTerm => {
+                this.searchTerm = searchTerm;
+                this.filterParts();
+                this.changeDetectorRef.detectChanges();
+            });
+
+            // Initialize maps for image service
+            this.initializeMaps();
+
+            // DISABLED: Temporarily disabled due to performance issues
+            // Make maps available globally for image retry service
+            // (window as any).__partColorsMap = this.partColorsMap;
+            // (window as any).__elementsMap = this.elementsMap;
+
             const route = this.route.snapshot;
             const inventoryId = route.paramMap.get('id');
 
             // Check if this is missing parts mode
             this.isMissingPartsMode = route.url.some(segment => segment.path === 'missing-parts');
+
+            // Check if this is loose parts collection mode
+            this.isLoosePartsMode = route.url.some(segment => segment.path === 'collection-inventory');
 
             // Initialize sort panel visibility after component is stable
             setTimeout(() => {
@@ -2054,6 +2358,8 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
 
             if (this.isMissingPartsMode) {
                 await this.loadMissingPartsData();
+            } else if (this.isLoosePartsMode && inventoryId) {
+                await this.loadLoosePartsInventoryData();
             } else if (inventoryId) {
                 await this.loadStandardInventoryData();
             }
@@ -2073,8 +2379,44 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
     }
 
     ngOnDestroy(): void {
+        // Clean up subscriptions
+        this.destroy$.next();
+        this.destroy$.complete();
+
         // Clean up keyboard event listener
         document.removeEventListener('keydown', this.handleKeyDown.bind(this));
+    }
+
+    /**
+     * Initialize maps for image service
+     */
+    private initializeMaps(): void {
+        const allElements = this.dataService.getCurrentElements();
+
+        // Clear existing maps
+        this.elementsMap.clear();
+        this.partColorsMap.clear();
+
+        // Build elements map
+        allElements.forEach(element => {
+            const key = `${element.part_num}_${element.color_id}`;
+            this.elementsMap.set(key, element.element_id);
+        });
+
+        // Build part colors map
+        const partColorGroups = new Map<string, number[]>();
+        allElements.forEach(element => {
+            if (!partColorGroups.has(element.part_num)) {
+                partColorGroups.set(element.part_num, []);
+            }
+            partColorGroups.get(element.part_num)!.push(element.color_id);
+        });
+
+        // Sort and deduplicate colors for each part
+        partColorGroups.forEach((colorIds, partNum) => {
+            const sortedColors = [...new Set(colorIds)].sort((a, b) => a - b);
+            this.partColorsMap.set(partNum, sortedColors);
+        });
     }
 
     private handleKeyDown(event: KeyboardEvent): void {
@@ -2224,6 +2566,52 @@ export class InventoryDetailComponent implements OnInit, OnDestroy {
      */
     getRebrickableUrl(partNum: string): string {
         return `https://rebrickable.com/parts/${partNum}/`;
+    }
+
+    async openCameraModal(): Promise<void> {
+        try {
+            // Dynamically import and create the camera modal component
+            const { CameraModalComponent } = await import('../camera-modal/camera-modal.component');
+
+            this.showCameraModal = true;
+            this.cameraModalContainer.clear();
+            const componentRef = this.cameraModalContainer.createComponent(CameraModalComponent);
+
+            // Subscribe to search query output
+            componentRef.instance.searchQueryEmitter.subscribe((query: string) => {
+                this.searchTerm = query;
+                this.filterParts();
+            });
+
+            // Subscribe to closed output
+            componentRef.instance.closed.subscribe(() => {
+                this.showCameraModal = false;
+                this.cameraModalContainer.clear();
+            });
+        } catch (error) {
+            console.error('Failed to open camera modal:', error);
+        }
+    }
+
+    /**
+     * Parse search terms, respecting quoted strings as single terms
+     * Example: 'bar "4.5l with" gate' -> ['bar', '4.5l with', 'gate']
+     */
+    private parseSearchTerms(searchText: string): string[] {
+        const terms: string[] = [];
+        const regex = /[^\s"]+|"([^"]*)"/gi;
+        let match;
+
+        while ((match = regex.exec(searchText)) !== null) {
+            // If the match is a quoted string, use the captured group (without quotes)
+            // Otherwise, use the whole match
+            const term = match[1] !== undefined ? match[1] : match[0];
+            if (term.trim()) {
+                terms.push(term.trim());
+            }
+        }
+
+        return terms;
     }
 }
 

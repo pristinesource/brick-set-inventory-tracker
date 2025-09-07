@@ -1,0 +1,21 @@
+{
+    "metadata": {
+        "generated": "2024-01-15T10:00:00.000Z",
+        "totalParts": 2,
+        "processedParts": 2,
+        "mappedParts": 2,
+        "source": "Example for testing"
+    },
+    "brickLinkToRebrickable": {
+        "6538c": "59443",
+        "3001": "3001"
+    },
+    "rebrickableToBrickLink": {
+        "59443": [
+            "6538c"
+        ],
+        "3001": [
+            "3001"
+        ]
+    }
+}

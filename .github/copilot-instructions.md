@@ -89,6 +89,8 @@ You are working on an Angular TypeScript application for managing building block
 - IndexedDBService: For local database operations
 - LoadingService: For managing loading states
 - ExportService: For data export functionality
+- ImageService: For unified image URL handling
+- ColorGroupingService: For color filtering and aliasing
 
 ## Common Anti-Patterns to Avoid
 - Loading all CSV data simultaneously
@@ -104,6 +106,9 @@ You are working on an Angular TypeScript application for managing building block
 
 ## File Structure Awareness
 - Components: `src/app/components/[component-name]/`
+  - `inventory-detail/`: Unified component for set inventories, missing parts, and loose parts collections
+  - `loose-parts/`: Browse and manage loose parts collections
+  - `collection-inventory/`: DEPRECATED - now using inventory-detail
 - Services: `src/app/services/`
 - Models: `src/app/models/models.ts`
 - Data: `src/assets/data/` and `src/assets/custom_data/`

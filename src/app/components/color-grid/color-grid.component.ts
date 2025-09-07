@@ -233,7 +233,7 @@ export class ColorGridComponent implements OnInit {
     getCellColor(row: number, col: number): string {
         const colorId = this.grid[row][col];
         if (colorId === null) {
-            if (this.backgroundFill === 'white') return '#F5F5F5';
+            if (this.backgroundFill === 'white') return '#d0d0d0'; // Medium gray for better contrast
             if (this.backgroundFill === 'black') return '#1A1A1A';
             return 'transparent';
         }
@@ -279,16 +279,68 @@ export class ColorGridComponent implements OnInit {
     // Calculate text position and size for a region with advanced text fitting
     getRegionTextStyle(region: ColorRegion): any {
         const cellSize = 100 / this.GRID_SIZE; // Percentage size of each cell
-        const width = (region.bounds.maxCol - region.bounds.minCol + 1) * cellSize;
-        const height = (region.bounds.maxRow - region.bounds.minRow + 1) * cellSize;
+
+        // Check if this is a single cell that should expand
+        const isSingleCell = region.cells.length === 1;
+        let effectiveRegion = region;
+
+        if (isSingleCell) {
+            // Try to expand single cells up to 2 cells in any direction
+            const expandedBounds = this.calculateExpandedBounds(region);
+            if (expandedBounds) {
+                effectiveRegion = {
+                    ...region,
+                    bounds: {
+                        ...expandedBounds,
+                        centerRow: Math.floor((expandedBounds.minRow + expandedBounds.maxRow) / 2),
+                        centerCol: Math.floor((expandedBounds.minCol + expandedBounds.maxCol) / 2)
+                    }
+                };
+            }
+        }
+
+        const width = (effectiveRegion.bounds.maxCol - effectiveRegion.bounds.minCol + 1) * cellSize;
+        const height = (effectiveRegion.bounds.maxRow - effectiveRegion.bounds.minRow + 1) * cellSize;
 
         const colorName = this.getColorName(region.colorId);
-        const textMetrics = this.calculateOptimalTextDisplay(colorName, width, height, region);
+
+        // Check if height > width, if so we'll rotate text
+        const shouldRotate = height > width;
+
+        // Always calculate text metrics as if horizontal
+        // For vertical regions, we pretend they're horizontal for calculation
+        const metricsWidth = shouldRotate ? height : width;
+        const metricsHeight = shouldRotate ? width : height;
+
+        // Create a pseudo-region with swapped dimensions for rotated text
+        const metricsRegion = shouldRotate ? {
+            ...effectiveRegion,
+            bounds: {
+                minRow: effectiveRegion.bounds.minCol,
+                maxRow: effectiveRegion.bounds.maxCol,
+                minCol: effectiveRegion.bounds.minRow,
+                maxCol: effectiveRegion.bounds.maxRow,
+                centerRow: effectiveRegion.bounds.centerCol,
+                centerCol: effectiveRegion.bounds.centerRow
+            }
+        } : effectiveRegion;
+
+        const textMetrics = this.calculateOptimalTextDisplay(colorName, metricsWidth, metricsHeight, metricsRegion);
+
+        // Now apply rotation if needed
+        if (shouldRotate) {
+            textMetrics.transform = 'rotate(-90deg)';
+            textMetrics.whiteSpace = 'nowrap'; // Prevent word breaking when rotated
+        }
+
+        // Calculate position using the effective region
+        const left = effectiveRegion.bounds.minCol * cellSize;
+        const top = effectiveRegion.bounds.minRow * cellSize;
 
         return {
             position: 'absolute',
-            left: `${region.bounds.minCol * cellSize}%`,
-            top: `${region.bounds.minRow * cellSize}%`,
+            left: `${left}%`,
+            top: `${top}%`,
             width: `${width}%`,
             height: `${height}%`,
             fontSize: `${textMetrics.fontSize}vmin`,
@@ -299,15 +351,15 @@ export class ColorGridComponent implements OnInit {
             color: this.getContrastColor(region.colorId),
             fontWeight: textMetrics.fontWeight,
             textAlign: 'center',
-            padding: '1px',
             lineHeight: textMetrics.lineHeight,
             whiteSpace: textMetrics.whiteSpace,
-            wordBreak: textMetrics.wordBreak,
-            hyphens: 'auto',
-            transform: textMetrics.transform,
+            wordBreak: 'normal', // Avoid breaking words
+            hyphens: 'none', // Disable hyphenation
+            transform: textMetrics.transform || '',
             transformOrigin: 'center center',
-            overflow: textMetrics.overflow,
-            zIndex: 10
+            overflow: 'visible',
+            zIndex: 10,
+            boxSizing: 'border-box',
         };
     }
 
@@ -317,18 +369,18 @@ export class ColorGridComponent implements OnInit {
         const area = widthPercent * heightPercent;
         const textLength = text.length;
 
-        // Base font size calculation - much more aggressive scaling
-        let fontSize = Math.min(widthPercent, heightPercent) * 0.3;
+        // Base font size calculation - conservative to avoid word breaks
+        let fontSize = Math.min(widthPercent, heightPercent) * 0.25;
 
-        // Very aggressive scaling for long text - try to fit everything
+        // More conservative scaling for long text - prioritize no word breaks
         if (textLength > 6) {
-            fontSize *= 0.9;
+            fontSize *= 0.85;
         }
         if (textLength > 8) {
-            fontSize *= 0.8;
+            fontSize *= 0.75;
         }
         if (textLength > 10) {
-            fontSize *= 0.7;
+            fontSize *= 0.65;
         }
         if (textLength > 12) {
             fontSize *= 0.6;
@@ -348,11 +400,12 @@ export class ColorGridComponent implements OnInit {
             fontSize: fontSize,
             fontWeight: 'bold',
             lineHeight: '0.9',
-            whiteSpace: 'normal',
-            wordBreak: 'break-word',
+            whiteSpace: 'nowrap',
+            wordBreak: 'normal',
             transform: '',
-            overflow: 'visible'
+            overflow: 'hidden'
         };
+
 
         // For very wide regions, try horizontal layout first
         if (aspectRatio > 3) {
@@ -375,23 +428,14 @@ export class ColorGridComponent implements OnInit {
             }
         }
 
-        // Single cell special handling - be extremely aggressive
+        // Single cell special handling
         if (region.cells.length === 1) {
             if (textLength > 5) {
-                // For single cells, try very small text first before rotation
-                const maxFontForWidth = widthPercent * 0.12; // Very small font
+                // For single cells, just adjust font size
+                const maxFontForWidth = widthPercent * 0.15;
                 const maxFontForHeight = heightPercent * 0.25;
-
-                if (heightPercent >= widthPercent && textLength > 10) {
-                    // Only rotate for very long text in tall cells
-                    result.transform = 'rotate(-90deg)';
-                    result.fontSize = Math.min(result.fontSize, widthPercent * 0.7);
-                    result.whiteSpace = 'nowrap';
-                } else {
-                    // Try very small horizontal text first
-                    result.fontSize = Math.min(result.fontSize, maxFontForWidth, maxFontForHeight);
-                    result.lineHeight = '0.8';
-                }
+                result.fontSize = Math.min(result.fontSize, maxFontForWidth, maxFontForHeight);
+                result.lineHeight = '0.8';
             }
         }
 
@@ -427,13 +471,31 @@ export class ColorGridComponent implements OnInit {
             const width = (expandedBounds.maxCol - expandedBounds.minCol + 1) * cellSize;
             const height = (expandedBounds.maxRow - expandedBounds.minRow + 1) * cellSize;
 
+            // Calculate position
+            const left = expandedBounds.minCol * cellSize;
+            const top = expandedBounds.minRow * cellSize;
+
+            // Check if we should rotate (height > width)
+            const shouldRotate = height > width;
+
+            // Calculate text layout as if horizontal
+            const layoutWidth = shouldRotate ? height : width;
+            const layoutHeight = shouldRotate ? width : height;
+
+            // Use same font sizing calculation as horizontal text
+            let fontSize = Math.min(layoutWidth, layoutHeight) * 0.3;
+
+            // Apply rotation after calculating everything
+            let transform = shouldRotate ? 'rotate(-90deg)' : '';
+            let whiteSpace = shouldRotate ? 'nowrap' : 'normal';
+
             return {
                 position: 'absolute',
-                left: `${expandedBounds.minCol * cellSize}%`,
-                top: `${expandedBounds.minRow * cellSize}%`,
+                left: `${left}%`,
+                top: `${top}%`,
                 width: `${width}%`,
                 height: `${height}%`,
-                fontSize: `${Math.min(width, height) * 0.15}vmin`,
+                fontSize: `${fontSize}vmin`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -441,111 +503,94 @@ export class ColorGridComponent implements OnInit {
                 color: this.getContrastColor(region.colorId),
                 fontWeight: '600',
                 textAlign: 'center',
-                padding: '1px',
-                backgroundColor: 'rgba(255,255,255,0.1)',
+                padding: '2px',
+                backgroundColor: 'transparent',
                 borderRadius: '2px',
                 zIndex: 15,
-                whiteSpace: 'normal',
-                wordBreak: 'break-word',
-                lineHeight: '1.1'
+                whiteSpace: whiteSpace,
+                wordBreak: 'normal',
+                lineHeight: '1.1',
+                transform: transform,
+                transformOrigin: 'center center',
+                overflow: 'visible',
+                boxSizing: 'border-box'
             };
         }
 
         return null;
     }
 
-    // Calculate expanded bounds for text overflow - keep it close
+    // Calculate expanded bounds for text overflow - expand up to 2 cells in any direction
     private calculateExpandedBounds(region: ColorRegion): any {
         const originalBounds = region.bounds;
-        const colorName = this.getColorName(region.colorId);
 
-        // Only expand for very long names
-        if (colorName.length <= 16) {
+        // Only try to expand single cells
+        if (region.cells.length !== 1) {
             return null;
         }
 
-        // Look for empty adjacent cells, but stay close
         let expandedBounds = { ...originalBounds };
-        let foundExpansion = false;
+        let totalExpansion = 0;
 
-        // Try expanding right first (most natural reading direction), but limit to 2 cells
-        for (let col = originalBounds.maxCol + 1; col < Math.min(this.GRID_SIZE, originalBounds.maxCol + 3); col++) {
-            let canExpand = true;
-            for (let row = originalBounds.minRow; row <= originalBounds.maxRow; row++) {
-                if (this.grid[row][col] !== null) {
-                    canExpand = false;
-                    break;
-                }
-            }
-            if (canExpand) {
-                expandedBounds.maxCol = col;
-                foundExpansion = true;
+        // Try expanding in each direction, up to 2 cells total
+        // Priority: up, down, right, left
+
+        // Try expanding upward first (up to 2 cells)
+        let upwardExpansion = 0;
+        for (let row = originalBounds.minRow - 1; row >= Math.max(0, originalBounds.minRow - 2) && totalExpansion < 2; row--) {
+            if (this.grid[row][originalBounds.minCol] === null) {
+                expandedBounds.minRow = row;
+                upwardExpansion++;
+                totalExpansion++;
             } else {
                 break;
             }
         }
 
-        // If we didn't find enough space to the right, try left, but limit expansion
-        if (!foundExpansion || (expandedBounds.maxCol - originalBounds.maxCol) < 1) {
-            for (let col = originalBounds.minCol - 1; col >= Math.max(0, originalBounds.minCol - 2); col--) {
-                let canExpand = true;
-                for (let row = originalBounds.minRow; row <= originalBounds.maxRow; row++) {
-                    if (this.grid[row][col] !== null) {
-                        canExpand = false;
-                        break;
-                    }
-                }
-                if (canExpand) {
-                    expandedBounds.minCol = col;
-                    foundExpansion = true;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        // Only try expanding down if we're still too cramped and it's a single row
-        if (foundExpansion && (originalBounds.maxRow === originalBounds.minRow)) {
-            for (let row = originalBounds.maxRow + 1; row < Math.min(this.GRID_SIZE, originalBounds.maxRow + 2); row++) {
-                let canExpand = true;
-                for (let col = expandedBounds.minCol; col <= expandedBounds.maxCol; col++) {
-                    if (this.grid[row][col] !== null) {
-                        canExpand = false;
-                        break;
-                    }
-                }
-                if (canExpand) {
+        // Try expanding downward if we haven't reached 2 cells yet
+        if (totalExpansion < 2) {
+            for (let row = originalBounds.maxRow + 1; row < Math.min(this.GRID_SIZE, originalBounds.maxRow + 3) && totalExpansion < 2; row++) {
+                if (this.grid[row][originalBounds.minCol] === null) {
                     expandedBounds.maxRow = row;
+                    totalExpansion++;
                 } else {
                     break;
                 }
             }
         }
 
-        return foundExpansion ? expandedBounds : null;
+        // If we couldn't expand vertically, try horizontally
+        if (totalExpansion === 0) {
+            // Try right
+            for (let col = originalBounds.maxCol + 1; col < Math.min(this.GRID_SIZE, originalBounds.maxCol + 3) && totalExpansion < 2; col++) {
+                if (this.grid[originalBounds.minRow][col] === null) {
+                    expandedBounds.maxCol = col;
+                    totalExpansion++;
+                } else {
+                    break;
+                }
+            }
+
+            // Try left if still need expansion
+            if (totalExpansion < 2) {
+                for (let col = originalBounds.minCol - 1; col >= Math.max(0, originalBounds.minCol - 3) && totalExpansion < 2; col--) {
+                    if (this.grid[originalBounds.minRow][col] === null) {
+                        expandedBounds.minCol = col;
+                        totalExpansion++;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return totalExpansion > 0 ? expandedBounds : null;
     }
 
     // Check if a region needs overflow text display
     needsOverflowText(region: ColorRegion): boolean {
-        const colorName = this.getColorName(region.colorId);
-        const area = region.cells.length;
-
-        // Only use overflow for extremely long text in single cells where normal text really won't work
-        if (colorName.length > 16 && area === 1) {
-            const expandedBounds = this.calculateExpandedBounds(region);
-            // Only if we can expand close to the original region
-            if (expandedBounds) {
-                const originalBounds = region.bounds;
-                const expandDistance = Math.max(
-                    expandedBounds.maxCol - originalBounds.maxCol,
-                    originalBounds.minCol - expandedBounds.minCol,
-                    expandedBounds.maxRow - originalBounds.maxRow
-                );
-                // Only expand if very close (1-2 cells away)
-                return expandDistance <= 2;
-            }
-        }
-
+        // We now handle all text expansion in the main text style
+        // This prevents duplicate text rendering
         return false;
     }
 

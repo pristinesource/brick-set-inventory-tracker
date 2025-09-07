@@ -21,7 +21,8 @@ export class SettingsComponent implements OnInit {
     selectedFile: File | null = null;
     globalSettings: GlobalSettings = {
         imagePreviewSize: '1x',
-        includeSparePartsInProgress: true
+        includeSparePartsInProgress: true,
+        alwaysTrackLoosePartsByColor: false
     };
 
     // My Colors settings
@@ -160,6 +161,17 @@ export class SettingsComponent implements OnInit {
             include
                 ? 'Spare parts will now be included in progress calculations'
                 : 'Spare parts will now be excluded from progress calculations',
+            'success'
+        );
+    }
+
+    updateAlwaysTrackByColor(alwaysTrack: boolean): void {
+        this.globalSettings.alwaysTrackLoosePartsByColor = alwaysTrack;
+        this.storageService.updateGlobalSettings({ alwaysTrackLoosePartsByColor: alwaysTrack });
+        this.showMessage(
+            alwaysTrack
+                ? 'Loose parts will now always be tracked by color'
+                : 'Loose parts can now be switched between color and quantity tracking',
             'success'
         );
     }

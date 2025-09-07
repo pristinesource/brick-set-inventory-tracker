@@ -23,15 +23,11 @@
                 <div class="flex gap-2">
                     <button (click)="backgroundFill = 'white'" [class.active]="backgroundFill === 'white'"
                         class="px-3 py-1 rounded text-sm">
-                        White
+                        Light Gray
                     </button>
                     <button (click)="backgroundFill = 'black'" [class.active]="backgroundFill === 'black'"
                         class="px-3 py-1 rounded text-sm">
                         Black
-                    </button>
-                    <button (click)="backgroundFill = 'none'" [class.active]="backgroundFill === 'none'"
-                        class="px-3 py-1 rounded text-sm">
-                        None
                     </button>
                 </div>
             </div>
@@ -54,7 +50,8 @@
 
         <!-- Grid -->
         <div class="grid-wrapper">
-            <div class="grid-container" [class.show-grid]="showGrid" (mouseleave)="onMouseUp()">
+            <div class="grid-container" [class.show-grid]="showGrid"
+                [style.background]="backgroundFill === 'black' ? '#000000' : '#d0d0d0'" (mouseleave)="onMouseUp()">
                 <!-- Grid cells -->
                 <div class="grid-row" *ngFor="let row of grid; let rowIndex = index; trackBy: trackByRow">
                     <div class="grid-cell" *ngFor="let cell of row; let colIndex = index; trackBy: trackByCol"

@@ -106,7 +106,6 @@ export interface PartPopularityScore {
 
 // Loose Parts Inventory interfaces
 export interface LoosePartEntry {
-    part_num: string;
     trackByColor: boolean; // Whether to track individual colors or just total quantity
     totalQuantity?: number; // Used when trackByColor is false
     colorQuantities?: Record<number, number>; // colorId -> quantity, used when trackByColor is true
@@ -170,6 +169,8 @@ export interface UndoAction {
 export interface GlobalSettings {
     imagePreviewSize: '1x' | '2x' | '4x';
     includeSparePartsInProgress: boolean; // Whether to include spare parts in overall progress calculation
+    alwaysTrackLoosePartsByColor: boolean; // Whether to always track loose parts by color (prevents switching to quantity-only)
+    lastSelectedCameraId?: string | null; // Last selected camera device ID for part recognition
 }
 
 export interface AppState {

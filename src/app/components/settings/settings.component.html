@@ -95,6 +95,37 @@
                             percentage.
                         </p>
                     </div>
+
+                    <!-- Always Track Loose Parts by Color -->
+                    <div class="mb-6">
+                        <h3 class="font-medium text-gray-800 mb-2">Loose Parts Tracking</h3>
+                        <p class="text-gray-600 text-sm mb-3">
+                            When enabled, loose parts will always be tracked by individual colors and cannot be switched
+                            to quantity-only tracking.
+                        </p>
+                        <div class="flex space-x-2">
+                            <button (click)="updateAlwaysTrackByColor(true)"
+                                [class.bg-blue-600]="globalSettings.alwaysTrackLoosePartsByColor === true"
+                                [class.text-white]="globalSettings.alwaysTrackLoosePartsByColor === true"
+                                [class.bg-gray-200]="globalSettings.alwaysTrackLoosePartsByColor !== true"
+                                [class.text-gray-700]="globalSettings.alwaysTrackLoosePartsByColor !== true"
+                                class="px-4 py-2 rounded transition">
+                                Always Track by Color
+                            </button>
+                            <button (click)="updateAlwaysTrackByColor(false)"
+                                [class.bg-blue-600]="globalSettings.alwaysTrackLoosePartsByColor === false"
+                                [class.text-white]="globalSettings.alwaysTrackLoosePartsByColor === false"
+                                [class.bg-gray-200]="globalSettings.alwaysTrackLoosePartsByColor !== false"
+                                [class.text-gray-700]="globalSettings.alwaysTrackLoosePartsByColor !== false"
+                                class="px-4 py-2 rounded transition">
+                                Allow Switching
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">
+                            When "Always Track by Color" is enabled, the color/quantity toggle button will be hidden to
+                            prevent accidental data loss.
+                        </p>
+                    </div>
                 </div>
             </div>
 

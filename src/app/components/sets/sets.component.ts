@@ -32,7 +32,8 @@ export class SetsComponent implements OnInit {
     // Global settings
     globalSettings: GlobalSettings = {
         imagePreviewSize: '1x',
-        includeSparePartsInProgress: true
+        includeSparePartsInProgress: true,
+        alwaysTrackLoosePartsByColor: false
     };
 
     // Pagination properties

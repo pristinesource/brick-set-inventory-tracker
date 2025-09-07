@@ -1,0 +1,3 @@
+# Copy this file to rebrickable-api-key.txt and replace with your actual API key
+# Get your API key from: https://rebrickable.com/api/
+your_api_key_here
